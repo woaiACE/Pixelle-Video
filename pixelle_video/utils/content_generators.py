@@ -59,7 +59,7 @@ async def generate_title(
     
     # Pass max_length to prompt so LLM knows the character limit
     prompt = build_title_generation_prompt(content, max_length=max_length)
-    response = await llm_service(prompt, temperature=0.7, max_tokens=50)
+    response = await llm_service(prompt, temperature=0.7, max_tokens=2000)
     
     # Clean up response
     title = response.strip()
@@ -500,4 +500,3 @@ def _parse_json(text: str) -> dict:
     
     # If all fails, raise error
     raise json.JSONDecodeError("No valid JSON found", text, 0)
-

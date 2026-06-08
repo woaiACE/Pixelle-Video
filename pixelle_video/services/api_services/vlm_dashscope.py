@@ -29,11 +29,21 @@ class QwenVLClient:
         """
         self.api_key = api_key or os.getenv("DASHSCOPE_API_KEY")
 
-    def chat(self, text: str, images: List[str], model: str, stream: bool = False, parameters: Optional[Dict] = None, **kwargs) -> Any:
+    def chat(
+        self,
+        text: str,
+        images: List[str],
+        model: str,
+        stream: bool = False,
+        parameters: Optional[Dict] = None,
+        videos: Optional[List[str]] = None,
+        **kwargs
+    ) -> Any:
         """
-        使用阿里云 dashscope SDK 进行多模态对话（文本+图片），风格与 image_dashscope.py 一致。
+        使用阿里云 dashscope SDK 进行多模态对话（文本+图片/视频），风格与 image_dashscope.py 一致。
         :param text: 文本内容
         :param images: 图片路径列表（支持本地路径或URL，内部会转换为file://绝对路径）
+        :param videos: 视频路径列表（支持本地路径或URL，内部会转换为file://绝对路径）
         :param model: 模型名（支持qwen3.5-plus, qwen3-vl-plus）
         :param stream: 是否流式输出（暂不支持流式）
         :param parameters: 其他API参数
@@ -45,10 +55,12 @@ class QwenVLClient:
         dashscope.api_key = self.api_key
         # 只支持非流式
         try:
-            messages = [{"role": "user", "content": [
+            content = [
                 {"text": text},
-                *({"image": p} for p in images)
-            ]}]
+                *({"image": p} for p in images),
+                *({"video": p} for p in videos or []),
+            ]
+            messages = [{"role": "user", "content": content}]
             response = MultiModalConversation.call(
                 model=model,
                 messages=messages,

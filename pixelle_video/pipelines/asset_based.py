@@ -225,10 +225,17 @@ class AssetBasedPipeline(LinearVideoPipeline):
             if asset_type == "image":
                 analysis_source = context.request.get("source", "runninghub")
                 if analysis_source == "api":
-                    description = await self.core.api_asset_analysis.analyze_image(asset_path)
+                    description = await self.core.api_asset_analysis.analyze_image(
+                        asset_path,
+                        model=context.request.get("analysis_vlm_model"),
+                    )
                 else:
                     # Analyze image using ImageAnalysisService
-                    description = await self.core.image_analysis(asset_path, source=analysis_source)
+                    description = await self.core.image_analysis(
+                        asset_path,
+                        source=analysis_source,
+                        workflow=context.request.get("analysis_image_workflow"),
+                    )
                 
                 self.asset_index[asset_path] = {
                     "path": asset_path,
@@ -243,10 +250,17 @@ class AssetBasedPipeline(LinearVideoPipeline):
                 analysis_source = context.request.get("source", "runninghub")
                 try:
                     if analysis_source == "api":
-                        description = await self.core.api_asset_analysis.analyze_video(asset_path)
+                        description = await self.core.api_asset_analysis.analyze_video(
+                            asset_path,
+                            model=context.request.get("analysis_vlm_model"),
+                        )
                     else:
                         # Analyze video using VideoAnalysisService
-                        description = await self.core.video_analysis(asset_path, source=analysis_source)
+                        description = await self.core.video_analysis(
+                            asset_path,
+                            source=analysis_source,
+                            workflow=context.request.get("analysis_video_workflow"),
+                        )
                     
                     self.asset_index[asset_path] = {
                         "path": asset_path,
