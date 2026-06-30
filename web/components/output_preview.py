@@ -40,8 +40,27 @@ def render_output_preview(pixelle_video, video_params):
         render_single_output(pixelle_video, video_params)
 
 
+def _generate_script_only(pixelle_video, text, mode, n_scenes, split_mode, title):
+    """Generate script only (step 1)"""
+    from pixelle_video.utils.content_generators import generate_narrations_from_topic, split_narration_script
+
+    if mode == "generate":
+        narrations = run_async(generate_narrations_from_topic(
+            pixelle_video.llm,
+            topic=text,
+            n_scenes=n_scenes,
+        ))
+    else:
+        narrations = run_async(split_narration_script(text, split_mode=split_mode))
+
+    # Store in session state for next step
+    st.session_state.generated_script = narrations
+    st.session_state.script_ready = True
+    return narrations
+
+
 def render_single_output(pixelle_video, video_params):
-    """Render single video generation output (original logic, unchanged)"""
+    """Render single video generation output with script preview step"""
     # Extract parameters from video_params dict
     text = video_params.get("text", "")
     mode = video_params.get("mode", "generate")
@@ -50,37 +69,85 @@ def render_single_output(pixelle_video, video_params):
     split_mode = video_params.get("split_mode", "paragraph")
     bgm_path = video_params.get("bgm_path")
     bgm_volume = video_params.get("bgm_volume", 0.2)
-    
+
     tts_mode = video_params.get("tts_inference_mode", "local")
     selected_voice = video_params.get("tts_voice")
     tts_speed = video_params.get("tts_speed")
     tts_workflow_key = video_params.get("tts_workflow")
     ref_audio_path = video_params.get("ref_audio")
-    
+
     frame_template = video_params.get("frame_template")
     custom_values_for_video = video_params.get("template_params", {})
     workflow_key = video_params.get("media_workflow")
     api_video_params = video_params.get("api_video_params")
     prompt_prefix = video_params.get("prompt_prefix", "")
-    
+
     with st.container(border=True):
         st.markdown(f"**{tr('section.video_generation')}**")
-        
+
         # Check if system is configured
         if not config_manager.validate():
             st.warning(tr("settings.not_configured"))
-        
-        # Generate Button
-        if st.button(tr("btn.generate"), type="primary", use_container_width=True):
-            # Validate system configuration
-            if not config_manager.validate():
-                st.error(tr("settings.not_configured"))
-                st.stop()
-            
-            # Validate input
-            if not text:
-                st.error(tr("error.input_required"))
-                st.stop()
+
+        # ========== Script Preview Step (New) ==========
+        if mode == "generate" and not st.session_state.get("script_ready", False):
+            # Only show script preview for "generate" mode (not fixed mode)
+            if st.button("📝 生成脚本并预览", type="primary", use_container_width=True):
+                if not text:
+                    st.error(tr("status.error", error="请输入内容"))
+                    st.stop()
+
+                with st.spinner("AI 正在生成脚本..."):
+                    narrations = _generate_script_only(pixelle_video, text, mode, n_scenes, split_mode, title)
+
+                st.success(f"✅ 脚本生成完成，共 {len(narrations)} 个镜头")
+                st.rerun()
+
+        # Show editable script if ready
+        if st.session_state.get("script_ready", False):
+            with st.expander("📋 脚本预览（可编辑）", expanded=True):
+                script_text = "\n\n".join(f"镜头 {i+1}: {n}" for i, n in enumerate(st.session_state.generated_script))
+                edited_script = st.text_area(
+                    "编辑脚本（每段用空行分隔，每段对应一个视频镜头）",
+                    value=script_text,
+                    height=300,
+                    key="script_editor"
+                )
+
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button("❌ 重新生成", use_container_width=True):
+                        st.session_state.script_ready = False
+                        st.session_state.generated_script = None
+                        st.rerun()
+                with col2:
+                    if st.button("✅ 确认脚本，继续生成视频", type="primary", use_container_width=True):
+                        # Parse edited script back to narrations list
+                        edited_narrations = [s.strip() for s in edited_script.split("\n\n") if s.strip()]
+                        # Remove "镜头 N: " prefix if present
+                        cleaned_narrations = []
+                        for n in edited_narrations:
+                            if n.startswith("镜头") and ": " in n:
+                                cleaned_narrations.append(n.split(": ", 1)[1])
+                            else:
+                                cleaned_narrations.append(n)
+                        st.session_state.final_narrations = cleaned_narrations
+                        st.success(f"✅ 脚本已确认，共 {len(cleaned_narrations)} 个镜头")
+
+        # Generate Button (only show if script confirmed OR in fixed mode)
+        can_generate = (mode != "generate") or st.session_state.get("final_narrations") is not None
+
+        if can_generate:
+            if st.button(tr("btn.generate"), type="primary", use_container_width=True):
+                # Validate system configuration
+                if not config_manager.validate():
+                    st.error(tr("settings.not_configured"))
+                    st.stop()
+
+                # Validate input
+                if not text:
+                    st.error(tr("error.input_required"))
+                    st.stop()
 
             from pixelle_video.utils.template_util import get_template_type
             if frame_template and get_template_type(frame_template) == "video" and not workflow_key:
@@ -151,11 +218,18 @@ def render_single_output(pixelle_video, video_params):
                     "media_width": st.session_state.get('template_media_width'),
                     "media_height": st.session_state.get('template_media_height'),
                 }
+
+                # Pass confirmed script to pipeline (skip re-generation)
+                if st.session_state.get("final_narrations"):
+                    video_params["narrations"] = st.session_state.get("final_narrations")
+                    video_params["n_scenes"] = len(video_params["narrations"])
                 # Add TTS parameters based on mode
                 video_params["tts_inference_mode"] = tts_mode
                 if tts_mode == "local":
                     video_params["tts_voice"] = selected_voice
                     video_params["tts_speed"] = tts_speed
+                elif tts_mode == "qwen_tts":
+                    video_params["tts_voice"] = selected_voice
                 else:  # comfyui
                     video_params["tts_workflow"] = tts_workflow_key
                     if ref_audio_path:
@@ -172,7 +246,12 @@ def render_single_output(pixelle_video, video_params):
                 
                 progress_bar.progress(100)
                 status_text.text(tr("status.success"))
-                
+
+                # Clear script state for next generation
+                st.session_state.script_ready = False
+                st.session_state.generated_script = None
+                st.session_state.final_narrations = None
+
                 # Display success message
                 st.success(tr("status.video_generated", path=result.video_path))
                 
@@ -193,9 +272,20 @@ def render_single_output(pixelle_video, video_params):
                     f"📐 {video_width}x{video_height}"
                 )
                 st.caption(info_text)
-                
+
+                # Image prompts (LLM 推理结果，默认折叠，供用户评估提示词质量)
+                with st.expander(f"🧠 {tr('history.detail.image_prompt')}（LLM）", expanded=False):
+                    for frame in result.storyboard.frames:
+                        st.markdown(f"**{tr('history.detail.frame')} {frame.index + 1}**")
+                        st.caption(f"{tr('history.detail.narration')}: {frame.narration}")
+                        st.caption(
+                            f"{tr('history.detail.image_prompt')}: "
+                            f"{frame.image_prompt if frame.image_prompt else '—'}"
+                        )
+                        st.markdown("---")
+
                 st.markdown("---")
-                
+
                 # Video preview
                 if os.path.exists(result.video_path):
                     st.video(result.video_path)

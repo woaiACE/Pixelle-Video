@@ -25,7 +25,8 @@ from pixelle_video.prompts.title_generation import build_title_generation_prompt
 from pixelle_video.prompts.image_generation import (
     build_image_prompt_prompt,
     IMAGE_STYLE_PRESETS,
-    DEFAULT_IMAGE_STYLE
+    DEFAULT_IMAGE_STYLE,
+    get_style_hint_by_prefix
 )
 from pixelle_video.prompts.style_conversion import build_style_conversion_prompt
 
@@ -43,4 +44,5 @@ __all__ = [
     # Image style presets
     "IMAGE_STYLE_PRESETS",
     "DEFAULT_IMAGE_STYLE",
+    "get_style_hint_by_prefix",
 ]

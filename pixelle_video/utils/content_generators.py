@@ -273,11 +273,12 @@ async def generate_image_prompts(
     max_words: int = 60,
     batch_size: int = 10,
     max_retries: int = 3,
-    progress_callback: Optional[callable] = None
+    progress_callback: Optional[callable] = None,
+    style_hint: Optional[str] = None
 ) -> List[str]:
     """
     Generate image prompts from narrations (with batching and retry)
-    
+
     Args:
         llm_service: LLM service instance
         narrations: List of narrations
@@ -286,7 +287,9 @@ async def generate_image_prompts(
         batch_size: Max narrations per batch (default: 10)
         max_retries: Max retry attempts per batch (default: 3)
         progress_callback: Optional callback(completed, total, message) for progress updates
-    
+        style_hint: Optional creative guidance for the target visual style, injected into
+            the LLM prompt so scene composition fits the style. None = default behavior.
+
     Returns:
         List of image prompts (base prompts, without prefix applied)
     """
@@ -311,7 +314,8 @@ async def generate_image_prompts(
                 prompt = build_image_prompt_prompt(
                     narrations=batch_narrations,
                     min_words=min_words,
-                    max_words=max_words
+                    max_words=max_words,
+                    style_hint=style_hint
                 )
                 
                 response = await llm_service(

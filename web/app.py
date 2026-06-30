@@ -46,15 +46,21 @@ def main():
         icon="🎬",
         default=True
     )
-    
+
     history_page = st.Page(
         "pages/2_📚_History.py",
         title="History",
         icon="📚"
     )
-    
+
+    voice_designer_page = st.Page(
+        "pages/3_Voice_Designer.py",
+        title="Voice Designer",
+        icon="🔊"
+    )
+
     # Set up navigation and run
-    pg = st.navigation([home_page, history_page])
+    pg = st.navigation([home_page, history_page, voice_designer_page])
     pg.run()
 
 

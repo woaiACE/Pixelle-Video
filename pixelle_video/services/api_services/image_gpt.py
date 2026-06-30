@@ -2,6 +2,7 @@ import os
 import time
 import uuid
 import base64
+import logging
 import httpx
 from openai import OpenAI
 try:
@@ -31,7 +32,7 @@ class ImageGPT:
         self.api_key = api_key or os.getenv("OPENAI_API_KEY")
         self.timeout = timeout
         
-        kwargs = {"api_key": self.api_key, "timeout": self.timeout}
+        kwargs = {"api_key": self.api_key, "timeout": max(self.timeout, 600.0)}
         
         self.base_url = base_url
         if local_proxy:
@@ -128,11 +129,11 @@ class ImageGPT:
                 raise RuntimeError("未在响应中找到 url 或 b64_json")
             except Exception as e:
                 last_error = e
-                msg = str(e)
-                # Other errors: wait before retry
-                print(f"Image generation error: {e}. Retrying in 10 seconds.")
-                time.sleep(10)
-                break  # Break inner loop to retry all models
+                logging.warning(f"Image generation attempt {attempts + 1}/{self.max_attempts} failed: {e}")
+                if attempts < self.max_attempts - 1:
+                    wait = min(10 * (2 ** attempts), 120)  # ponytail: exp backoff, max 2min
+                    logging.info(f"Retrying in {wait}s...")
+                    time.sleep(wait)
             attempts += 1
         raise Exception(f"Max attempts reached, failed to generate image. Last error: {last_error}")
 

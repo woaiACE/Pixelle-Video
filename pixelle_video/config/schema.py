@@ -56,6 +56,8 @@ class APIProvidersConfig(BaseModel):
     gemini: APIKeyProviderConfig = Field(default_factory=APIKeyProviderConfig)
     ark: APIKeyProviderConfig = Field(default_factory=APIKeyProviderConfig)
     kling: AccessSecretProviderConfig = Field(default_factory=AccessSecretProviderConfig)
+    # ponytail: voice design defaults hardcoded, user only needs key
+    voice_design: APIKeyProviderConfig = Field(default_factory=APIKeyProviderConfig)
 
 
 class TTSLocalConfig(BaseModel):

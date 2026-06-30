@@ -300,11 +300,15 @@ def render_advanced_settings():
         dashscope_cfg = api_cfg.get("dashscope", {})
         ark_cfg = api_cfg.get("ark", {})
         kling_cfg = api_cfg.get("kling", {})
+        gemini_cfg = api_cfg.get("gemini", {})
+        voice_design_cfg = api_cfg.get("voice_design", {})
         default_api_base_urls = {
             "openai": "https://api.openai.com/v1",
             "dashscope": "https://dashscope.aliyuncs.com/api/v1",
             "ark": "https://ark.cn-beijing.volces.com/api/v3",
             "kling": "https://api-beijing.klingai.com",
+            "gemini": "https://generativelanguage.googleapis.com",
+            "voice_design": "https://api-bailian.aliyun.com/v1",
         }
 
         with st.container(border=True):
@@ -382,6 +386,30 @@ def render_advanced_settings():
                     key="api_media_dashscope_base_url",
                 )
 
+                st.markdown("**Google Gemini Image**")
+                api_gemini_use_proxy = st.checkbox(
+                    "Gemini 启用代理" if zh else "Use proxy for Gemini",
+                    value=bool(gemini_cfg.get("use_proxy", False)),
+                    key="api_media_gemini_use_proxy",
+                )
+                api_gemini_key = st.text_input(
+                    "Gemini API Key",
+                    value=gemini_cfg.get("api_key", ""),
+                    type="password",
+                    key="api_media_gemini_key",
+                )
+                api_gemini_base_url = st.text_input(
+                    "Gemini Base URL",
+                    value=gemini_cfg.get("base_url") or default_api_base_urls["gemini"],
+                    placeholder="https://generativelanguage.googleapis.com",
+                    help=(
+                        "Gemini 原生接口。可填中转地址；支持 gemini-3-pro-image / gemini-3.1-flash-image 图像模型。"
+                        if zh
+                        else "Gemini native API. Relay base URL supported; works with gemini-3-pro-image / gemini-3.1-flash-image image models."
+                    ),
+                    key="api_media_gemini_base_url",
+                )
+
             with provider_col2:
                 st.markdown("**Volcengine ARK / Seedream / Seedance**")
                 api_ark_use_proxy = st.checkbox(
@@ -426,6 +454,17 @@ def render_advanced_settings():
                     type="password",
                     key="api_media_kling_secret_key",
                 )
+
+                st.markdown("---")
+                st.markdown("**🔊 语音设计 / Voice Design**")
+                api_voice_design_key = st.text_input(
+                    "DashScope API Key（百炼/阿里云）",
+                    value=voice_design_cfg.get("api_key", ""),
+                    type="password",
+                    help="用于 Qwen-TTS 语音设计（音色创建）。密钥获取：https://bailian.console.aliyun.com/#/api-key",
+                    key="api_media_voice_design_key",
+                )
+                st.caption("仅需 Key，Base URL 和区域已内置" if zh else "Only Key needed, Base URL and region are pre-configured")
         
         # ====================================================================
         # Action Buttons (full width at bottom)
@@ -473,11 +512,21 @@ def render_advanced_settings():
                         "base_url": api_ark_base_url or "",
                         "use_proxy": bool(api_ark_use_proxy),
                     })
+                    config_manager.set_api_provider_config("gemini", {
+                        "api_key": api_gemini_key or "",
+                        "base_url": api_gemini_base_url or "",
+                        "use_proxy": bool(api_gemini_use_proxy),
+                    })
                     config_manager.set_api_provider_config("kling", {
                         "base_url": api_kling_base_url or "",
                         "access_key": api_kling_access_key or "",
                         "secret_key": api_kling_secret_key or "",
                         "use_proxy": bool(api_kling_use_proxy),
+                    })
+                    config_manager.set_api_provider_config("voice_design", {
+                        "api_key": api_voice_design_key or "",
+                        "base_url": "",  # ponytail: hardcoded defaults in Voice Designer page
+                        "use_proxy": False,
                     })
                     
                     # Only save to file if LLM config is valid
