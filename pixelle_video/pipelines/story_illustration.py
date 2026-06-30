@@ -193,17 +193,29 @@ class StoryIllustrationPipeline(StandardPipeline):
                     it["image_path"] = None
 
     def _select_refs(self, composition: str, lib: dict) -> List[str]:
-        """根据构图说明里提到的资产名，选出对应的 image_path（去重，过滤未生成的）。"""
+        """根据构图说明里提到的资产名，选出对应的 image_path（去重，过滤未生成的）。
+
+        长名优先匹配，匹配后从文本中剔除，避免短名（如"白白"）误匹配到长名片段。
+        """
         if not composition or not lib:
             return []
         comp = composition.lower()
-        refs = []
-        seen = set()
+        # 收集所有 (name, path)，按 name 长度降序
+        items = []
         for kind in ("characters", "scenes", "props"):
             for it in lib.get(kind, []):
                 name = it.get("name", "")
                 path = it.get("image_path")
-                if name and path and name.lower() in comp and path not in seen:
-                    refs.append(path)
-                    seen.add(path)
+                if name and path:
+                    items.append((name, path))
+        items.sort(key=lambda x: len(x[0]), reverse=True)
+
+        refs = []
+        seen = set()
+        for name, path in items:
+            name_l = name.lower()
+            if name_l in comp and path not in seen:
+                refs.append(path)
+                seen.add(path)
+                comp = comp.replace(name_l, "")  # 剔除已匹配，防短名误命中
         return refs
