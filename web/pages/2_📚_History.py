@@ -76,6 +76,16 @@ def format_datetime(iso_string: str) -> str:
         return iso_string
 
 
+def format_task_duration(metadata: dict) -> str:
+    """Wall-clock duration between created_at and completed_at."""
+    try:
+        created = datetime.fromisoformat(metadata["created_at"])
+        completed = datetime.fromisoformat(metadata.get("completed_at") or "")
+        return format_duration((completed - created).total_seconds())
+    except Exception:
+        return "N/A"
+
+
 def truncate_text(text: str, max_length: int = 60) -> str:
     """Truncate text to max length"""
     if len(text) <= max_length:
@@ -410,21 +420,38 @@ def render_task_detail_modal(task_id: str, pixelle_video):
     # Left column: Input and config
     with col_input:
         st.markdown(f"**📝 {tr('history.detail.input_params')}**")
-        
+
         input_params = metadata.get("input", {})
-        
+        cfg = metadata.get("config", {})
+
         # Display input parameters
         st.markdown(f"**{tr('history.detail.mode')}:** {input_params.get('mode', 'N/A')}")
         st.markdown(f"**{tr('history.detail.n_scenes')}:** {input_params.get('n_scenes', 'N/A')}")
         st.markdown(f"**{tr('history.detail.tts_mode')}:** {input_params.get('tts_inference_mode', 'N/A')}")
         st.markdown(f"**{tr('history.detail.voice')}:** {input_params.get('tts_voice', 'N/A')}")
-        
-        # Input text
-        with st.expander(tr("history.detail.text"), expanded=True):
+        st.markdown(f"**{tr('history.detail.llm_model')}:** {cfg.get('llm_model', 'N/A')}")
+        st.markdown(f"**{tr('history.detail.image_model')}:** {input_params.get('media_workflow') or 'default'}")
+        st.markdown(f"**{tr('history.detail.template')}:** {input_params.get('frame_template', 'N/A')}")
+        st.markdown(f"**{tr('history.detail.task_duration')}:** {format_task_duration(metadata)}")
+
+        # LLM-inferred script: joined frame narrations (falls back to input text)
+        frames = storyboard.frames if storyboard and storyboard.frames else []
+        script = "\n\n".join(f"[{i+1}] {f.narration}" for i, f in enumerate(frames) if f.narration)
+        with st.expander(tr("history.detail.generated_script"), expanded=True):
+            st.text_area(
+                "Script",
+                value=script or input_params.get('text', 'N/A'),
+                height=200,
+                disabled=True,
+                label_visibility="collapsed"
+            )
+
+        # Original user input
+        with st.expander(tr("history.detail.text"), expanded=False):
             st.text_area(
                 "Input Text",
                 value=input_params.get('text', 'N/A'),
-                height=200,
+                height=120,
                 disabled=True,
                 label_visibility="collapsed"
             )

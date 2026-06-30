@@ -264,6 +264,10 @@ class FrameProcessor:
             "image_path": frame.image_path,
             "index": frame.index + 1,  # 1-based index for workflow
         }
+        # img2img: asset-library reference images for cross-scene consistency.
+        # Transparent passthrough — empty list = standard text-to-image behavior.
+        if frame.reference_image_paths:
+            media_params["image_paths"] = frame.reference_image_paths
         media_params.update(api_video_params)
         
         # For video workflows: pass audio duration as target video duration
