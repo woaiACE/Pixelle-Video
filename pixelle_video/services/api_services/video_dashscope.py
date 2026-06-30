@@ -25,12 +25,9 @@ logger = logging.getLogger(__name__)
 
 
 class DashscopeVideoClient:
-    """
-    _proxy_env_lock = threading.Lock()
+    """阿里云通义万象视频生成客户端，使用 dashscope SDK 的 VideoSynthesis 接口。"""
 
-    阿里云通义万象视频生成客户端
-    使用 dashscope SDK 的 VideoSynthesis 接口
-    """
+    _proxy_env_lock = threading.Lock()
 
     def __init__(
         self,

@@ -154,7 +154,7 @@ class FrameProcessor:
         config: StoryboardConfig
     ):
         """Step 1: Generate audio using TTS"""
-        logger.debug(f"  1/4: Generating audio for frame {frame.index}...")
+        logger.info(f"  🔊 [Frame {frame.index+1}] TTS starting...")
         
         # Generate output path using task_id
         from pixelle_video.utils.os_util import get_task_frame_path
@@ -174,6 +174,10 @@ class FrameProcessor:
                 tts_params["voice"] = config.voice_id
             if config.tts_speed is not None:
                 tts_params["speed"] = config.tts_speed
+        elif config.tts_inference_mode == "qwen_tts":
+            # Qwen TTS mode: pass voice_id directly
+            if config.voice_id:
+                tts_params["voice"] = config.voice_id
         else:  # comfyui
             # ComfyUI mode: pass workflow, voice, speed, and ref_audio
             if config.tts_workflow:
@@ -200,7 +204,7 @@ class FrameProcessor:
         config: StoryboardConfig
     ):
         """Step 2: Generate media (image or video) using ComfyKit"""
-        logger.debug(f"  2/4: Generating media for frame {frame.index}...")
+        logger.info(f"  🎨 [Frame {frame.index+1}] Media generation starting...")
         
         # Determine media type based on workflow/template.
         # video_ prefix in workflow name indicates ComfyUI video generation;

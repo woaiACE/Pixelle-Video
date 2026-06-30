@@ -9,11 +9,13 @@ try:
     from .image_dashscope import DashScopeClient
     from .image_seedream import SeedreamClient
     from .image_gpt import ImageGPT
+    from .image_gemini import ImageGemini
     from .image_processor import ImageProcessor
 except ImportError:
     from .image_dashscope import DashScopeClient
     from .image_seedream import SeedreamClient
     from .image_gpt import ImageGPT
+    from .image_gemini import ImageGemini
     from .image_processor import ImageProcessor
 
 class ImageClient:
@@ -26,10 +28,13 @@ class ImageClient:
                  local_proxy: Optional[str] = None,
                  ark_api_key: Optional[str] = None,
                  ark_base_url: Optional[str] = None,
-                 ark_local_proxy: Optional[str] = None):
+                 ark_local_proxy: Optional[str] = None,
+                 gemini_api_key: Optional[str] = None,
+                 gemini_base_url: Optional[str] = None,
+                 gemini_local_proxy: Optional[str] = None):
         """
         Unified Image Generation Client
-        Routes requests to DashScope, Seedream, or GPT based on model name.
+        Routes requests to DashScope, Seedream, GPT, or Gemini based on model name.
         """
         self._dashscope_api_key = dashscope_api_key or Config.DASHSCOPE_API_KEY
         self._dashscope_base_url = dashscope_base_url or Config.DASHSCOPE_BASE_URL
@@ -43,9 +48,14 @@ class ImageClient:
         self._ark_base_url = ark_base_url or Config.ARK_BASE_URL
         self._ark_local_proxy = ark_local_proxy
 
+        self._gemini_api_key = gemini_api_key or Config.GEMINI_API_KEY
+        self._gemini_base_url = gemini_base_url or Config.GOOGLE_GEMINI_BASE_URL
+        self._gemini_local_proxy = gemini_local_proxy
+
         self._dashscope_client = None
         self._seedream_client = None
         self._gpt_client = None
+        self._gemini_client = None
 
         # Initialize Image Processor for downloads
         self.image_processor = ImageProcessor()
@@ -89,6 +99,19 @@ class ImageClient:
                 local_proxy=self._gpt_local_proxy,
             )
         return self._gpt_client
+
+    @property
+    def gemini_client(self):
+        """Create Gemini native image client only when a Gemini image model is selected."""
+        if not self._gemini_api_key:
+            raise RuntimeError("GEMINI_API_KEY not set. Configure Gemini only when using Gemini image models.")
+        if self._gemini_client is None:
+            self._gemini_client = ImageGemini(
+                api_key=self._gemini_api_key,
+                base_url=self._gemini_base_url,
+                local_proxy=self._gemini_local_proxy,
+            )
+        return self._gemini_client
 
     def generate_image(self,
                        prompt: str,
@@ -173,6 +196,7 @@ class ImageClient:
             
         # Determine backend provider
         is_seedream = "seedream" in model.lower()
+        is_gemini = "gemini" in model.lower()
         is_sora = "sora" in model.lower() or "gpt" in model.lower()
         
         # Prepare save directory
@@ -185,7 +209,27 @@ class ImageClient:
         
         generated_local_paths = []
 
-        if is_seedream:
+        if is_gemini:
+            # --- Gemini native (generateContent) ---
+            try:
+                logging.info(f"ImageClient requesting Gemini: {model}")
+                # Gemini 不吃像素尺寸，直接把 video_ratio 作为 aspectRatio（同档）
+                path = self.gemini_client.generate_image(
+                    prompt=prompt,
+                    model=model,
+                    save_dir=save_dir,
+                    image_urls=image_paths,
+                    aspect_ratio=video_ratio,
+                )
+                if path and os.path.exists(path):
+                    generated_local_paths.append(path)
+                else:
+                    logging.error(f"Gemini returned invalid path: {path}")
+            except Exception as e:
+                logging.error(f"Gemini generation failed: {e}")
+                raise  # ponytail: don't swallow - user needs to see it
+
+        elif is_seedream:
             # --- Seedream Logic ---
             try:
                 logging.info(f"ImageClient requesting Seedream: {model}")
@@ -208,18 +252,45 @@ class ImageClient:
             # --- GPT/Sora Logic ---
             try:
                 logging.info(f"ImageClient requesting GPT/Sora: {model}")
-                if image_paths:
-                    logging.warning("Sora/GPT model only supports Text-to-Image. Ignoring reference images.")
-                
-                # OpenAI uses 'x' separator, e.g. 1024x1024
-                # Attempt to map size if needed or just replace '*'
-                gpt_size = size.replace('*', 'x') if size else "1024x1024"
+
+                # Map to gpt-image-2 supported sizes (1024x1024, 1536x1024, 1024x1536,
+                # 2048x2048, 2048x1152, 3840x2160, 2160x3840)
+                # ponytail: nearest match by aspect ratio + resolution tier
+                GPT_SIZES = {
+                    (1, 1):    [(1024, 1024), (2048, 2048)],
+                    (16, 9):   [(1536, 1024), (2048, 1152), (3840, 2160)],
+                    (9, 16):   [(1024, 1536), (2160, 3840)],
+                    (4, 3):    [(1536, 1024), (2048, 1152)],
+                    (3, 4):    [(1024, 1536), (2160, 3840)],
+                }
+
+                # Determine target ratio and resolution from our internal size
+                w, h = (int(x) for x in size.split('*')) if '*' in size else (1920, 1080)
+                from math import gcd
+                g = gcd(w, h)
+                ratio_key = (w // g, h // g)
+
+                def _ratio_distance(a, b):
+                    return abs(a[0] / a[1] - b[0] / b[1])
+
+                candidates = GPT_SIZES.get(ratio_key)
+                if not candidates:
+                    # Find closest ratio
+                    closest = min(GPT_SIZES.items(), key=lambda kv: _ratio_distance(kv[0], ratio_key))
+                    candidates = closest[1]
+
+                # Pick the candidate closest in area (resolution tier)
+                target_area = w * h
+                gpt_w, gpt_h = min(candidates, key=lambda s: abs(s[0] * s[1] - target_area))
+                gpt_size = f"{gpt_w}x{gpt_h}"
+                logging.info(f"  Mapped internal {size} → GPT size {gpt_size}")
 
                 path = self.gpt_client.generate_image(
                     prompt=prompt,
                     size=gpt_size,
                     model=model,
-                    save_dir=save_dir
+                    save_dir=save_dir,
+                    image_urls=image_paths,
                 )
                 
                 if path and os.path.exists(path):
@@ -229,6 +300,7 @@ class ImageClient:
 
             except Exception as e:
                 logging.error(f"GPT/Sora generation failed: {e}")
+                raise  # ponytail: don't swallow error - user needs to see it
 
         else:
             # --- DashScope Logic ---

@@ -159,18 +159,30 @@ class HTMLFrameGenerator:
     def get_media_size(self) -> tuple[int, int]:
         """
         Get media size for image/video generation
-        
-        Returns media size specified in template meta tags.
-        
+
+        Priority: meta tags (CSS media area) > path parsing (canvas size) > fallback
+        Meta tags are set by template designer for the actual CSS media placeholder.
+        Path parsing only reflects the overall canvas, not the media sub-region.
+
         Returns:
             Tuple of (width, height)
         """
+        # 1. Meta tags: template designer's intent for CSS media area
         media_width, media_height = self._parse_media_size_from_meta()
-        
         if media_width and media_height:
             return media_width, media_height
-        
-        logger.warning(f"No media size meta tags found in template {self.template_path}, using fallback 1024x1024")
+
+        # 2. Fallback: parse from template path (e.g., "1080x1920/default.html" → 1080×1920)
+        try:
+            from pixelle_video.utils.template_util import parse_template_size
+            pw, ph = parse_template_size(str(self.template_path))
+            logger.debug(f"Media size from template path fallback: {pw}x{ph}")
+            return pw, ph
+        except Exception:
+            pass
+
+        # 3. Last resort
+        logger.warning(f"No media size found for {self.template_path}, using fallback 1024x1024")
         return 1024, 1024
     
     def parse_template_parameters(self) -> Dict[str, Dict[str, Any]]:

@@ -110,7 +110,14 @@ class StandardPipeline(LinearVideoPipeline):
         n_scenes = ctx.params.get("n_scenes", 5)
         min_words = ctx.params.get("min_narration_words", 5)
         max_words = ctx.params.get("max_narration_words", 20)
-        
+
+        # Support pre-generated narrations from UI script preview
+        predefined_narrations = ctx.params.get("narrations")
+        if predefined_narrations and isinstance(predefined_narrations, list) and len(predefined_narrations) > 0:
+            ctx.narrations = predefined_narrations
+            logger.info(f"✅ Using {len(ctx.narrations)} pre-defined narrations from script preview")
+            return
+
         if mode == "generate":
             self._report_progress(ctx.progress_callback, "generating_narrations", 0.05)
             ctx.narrations = await generate_narrations_from_topic(
@@ -183,7 +190,18 @@ class StandardPipeline(LinearVideoPipeline):
                 original_prefix = image_config.get("prompt_prefix")
                 image_config["prompt_prefix"] = prompt_prefix
                 logger.info(f"Using custom prompt_prefix: '{prompt_prefix}'")
-            
+
+            # Resolve style hint from the active prefix so the LLM composes scenes that fit
+            # the selected preset. Structural styles (stick figure, isometric) need this —
+            # prefix-concat alone fights the LLM's default dramatic/metaphor descriptions.
+            from pixelle_video.prompts.image_generation import get_style_hint_by_prefix
+            prompt_prefix_for_hint = prompt_prefix if prompt_prefix is not None else (
+                self.core.config.get("comfyui", {}).get("image", {}).get("prompt_prefix", "")
+            )
+            style_hint = get_style_hint_by_prefix(prompt_prefix_for_hint)
+            if style_hint:
+                logger.info("Injecting style hint into image prompt generation")
+
             try:
                 # Create progress callback wrapper for image prompt generation
                 def image_prompt_progress(completed: int, total: int, message: str):
@@ -195,14 +213,15 @@ class StandardPipeline(LinearVideoPipeline):
                         overall_progress,
                         extra_info=message
                     )
-                
+
                 # Generate base image prompts
                 base_image_prompts = await generate_image_prompts(
                     self.llm,
                     narrations=ctx.narrations,
                     min_words=min_words,
                     max_words=max_words,
-                    progress_callback=image_prompt_progress
+                    progress_callback=image_prompt_progress,
+                    style_hint=style_hint
                 )
                 
                 # Apply prompt prefix
@@ -243,6 +262,10 @@ class StandardPipeline(LinearVideoPipeline):
                 final_voice_id = tts_voice or "zh-CN-YunjianNeural"
                 final_tts_workflow = None
                 logger.debug(f"TTS Mode: local (voice={final_voice_id})")
+            elif tts_inference_mode == "qwen_tts":
+                final_voice_id = tts_voice
+                final_tts_workflow = None
+                logger.debug(f"TTS Mode: qwen_tts (voice={final_voice_id})")
             elif tts_inference_mode == "comfyui":
                 final_voice_id = None
                 logger.debug(f"TTS Mode: comfyui (workflow={final_tts_workflow})")
@@ -295,21 +318,17 @@ class StandardPipeline(LinearVideoPipeline):
         """Step 6: Generate audio, images, and render frames (Core processing)."""
         storyboard = ctx.storyboard
         config = ctx.config
-        
-        # Check if using RunningHub workflows for parallel processing
-        is_runninghub = (
-            (config.tts_workflow and config.tts_workflow.startswith("runninghub/")) or
-            (config.media_workflow and config.media_workflow.startswith("runninghub/"))
-        )
-        
-        # Get concurrent limit from config_manager (supports hot reload without restart)
-        from pixelle_video.config import config_manager
-        runninghub_concurrent_limit = config_manager.config.comfyui.runninghub_concurrent_limit or 1
-        
-        if is_runninghub and runninghub_concurrent_limit > 1:
-            logger.info(f"🚀 Using parallel processing for RunningHub workflows (max {runninghub_concurrent_limit} concurrent)")
-            
-            semaphore = asyncio.Semaphore(runninghub_concurrent_limit)
+
+        # ponytail: 所有 API 调用都是 I/O 密集，并发处理分镜（Semaphore 控制上限）
+        # RunningHub 同理复用已有的 Semaphore + gather 路径
+        _FRAME_CONCURRENT = 5  # ponytail: API 插图并发数
+        concurrent_limit = max(1, _FRAME_CONCURRENT)
+        has_multiple_frames = len(storyboard.frames) > 1
+
+        if has_multiple_frames and concurrent_limit > 1:
+            logger.info(f"🚀 并发处理 {len(storyboard.frames)} 个分镜 (max {concurrent_limit} concurrent, Semaphore+gather)")
+
+            semaphore = asyncio.Semaphore(concurrent_limit)
             completed_count = 0
             
             async def process_frame_with_semaphore(i: int, frame: StoryboardFrame):
@@ -365,8 +384,7 @@ class StandardPipeline(LinearVideoPipeline):
             
             logger.info(f"✅ All frames processed in parallel (total duration: {storyboard.total_duration:.2f}s)")
         else:
-            # Serial processing for non-RunningHub workflows
-            logger.info("⚙️ Using serial processing (non-RunningHub workflow)")
+            logger.info("⚙️ Processing single frame (serial)")
             
             for i, frame in enumerate(storyboard.frames):
                 base_progress = 0.2

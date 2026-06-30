@@ -74,3 +74,12 @@ examples/
 repositories/
 
 *.out
+
+# Local API integration notes (may contain private keys/endpoints)
+api文档/
+
+# Generated voice designs (runtime output)
+web/voice_designs/
+
+# Local scratch / generated outputs
+pixelle_video/services/code/

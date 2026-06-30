@@ -113,13 +113,19 @@ class TTSService(ComfyBaseService):
         """
         # Determine inference mode (param > config)
         mode = inference_mode or self.config.get("inference_mode", "local")
-        
+
         # Route to appropriate implementation
         if mode == "local":
             return await self._call_local_tts(
                 text=text,
                 voice=voice,
                 speed=speed,
+                output_path=output_path
+            )
+        elif mode == "qwen_tts":
+            return await self._call_qwen_tts(
+                text=text,
+                voice=voice,
                 output_path=output_path
             )
         else:  # comfyui
@@ -193,7 +199,35 @@ class TTSService(ComfyBaseService):
         except Exception as e:
             logger.error(f"Local TTS generation error: {e}")
             raise
-    
+
+    async def _call_qwen_tts(
+        self,
+        text: str,
+        voice: Optional[str] = None,
+        output_path: Optional[str] = None,
+        **params
+    ) -> str:
+        """Generate speech using Qwen TTS realtime API"""
+        import asyncio
+        from pixelle_video.services.api_services.tts_qwen import synthesize
+
+        if not voice:
+            raise RuntimeError("Qwen TTS 需要指定 voice 参数（音色 ID）")
+
+        # Generate output path if not provided
+        if not output_path:
+            import uuid
+            output_path = f"output/qwen_tts_{uuid.uuid4().hex}.wav"
+            Path("output").mkdir(parents=True, exist_ok=True)
+
+        logger.info(f"🎙️  Using Qwen TTS: voice={voice}")
+
+        # Run sync synthesize in thread pool (SDK uses blocking WebSocket calls)
+        result = await asyncio.to_thread(synthesize, text=text, voice=voice, output_path=output_path)
+
+        logger.info(f"✅ Generated audio (Qwen TTS): {result}")
+        return result
+
     async def _call_comfyui_workflow(
         self,
         workflow_info: dict,

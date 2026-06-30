@@ -60,16 +60,18 @@ def render_style_config(pixelle_video):
         # Inference mode selection
         tts_mode = st.radio(
             tr("tts.inference_mode"),
-            ["local", "comfyui"],
+            ["local", "comfyui", "qwen_tts"],
             horizontal=True,
             format_func=lambda x: tr(f"tts.mode.{x}"),
             index=0 if tts_config.get("inference_mode", "local") == "local" else 1,
             key="tts_inference_mode"
         )
-        
+
         # Show hint based on mode
         if tts_mode == "local":
             st.caption(tr("tts.mode.local_hint"))
+        elif tts_mode == "qwen_tts":
+            st.caption("Qwen TTS 实时语音合成 — 使用语音工作台设计的自定义音色")
         else:
             st.caption(tr("tts.mode.comfyui_hint"))
         
@@ -132,11 +134,48 @@ def render_style_config(pixelle_video):
             # Variables for video generation
             tts_workflow_key = None
             ref_audio_path = None
-        
+
+        # ================================================================
+        # Qwen TTS Mode UI
+        # ================================================================
+        elif tts_mode == "qwen_tts":
+            # Load saved voice designs from Voice Designer
+            import json
+            voice_designs_dir = Path(__file__).parent.parent / "voice_designs"
+
+            voice_options = []
+            voice_ids = []
+
+            if voice_designs_dir.exists():
+                for f in sorted(voice_designs_dir.glob("*.json"), reverse=True):
+                    try:
+                        with open(f, "r", encoding="utf-8") as fp:
+                            data = json.load(fp)
+                            voice_ids.append(data["voice_id"])
+                            voice_options.append(f"{data['name']} ({data['voice_id'][:12]}...)")
+                    except Exception:
+                        pass
+
+            if not voice_options:
+                st.warning("暂无已设计的音色，请先在「Voice Designer」页面创建音色")
+                selected_voice = None
+            else:
+                selected_voice = st.selectbox(
+                    "选择设计好的音色",
+                    voice_options,
+                    key="tts_qwen_voice"
+                )
+                selected_voice = voice_ids[voice_options.index(selected_voice)]
+                st.caption(f"Voice ID: `{selected_voice}`")
+
+            tts_speed = None
+            tts_workflow_key = None
+            ref_audio_path = None
+
         # ================================================================
         # ComfyUI Mode UI
         # ================================================================
-        else:  # comfyui mode
+        elif tts_mode == "comfyui":  # comfyui mode
             # Get available TTS workflows
             tts_workflows = pixelle_video.tts.list_workflows()
             
@@ -218,6 +257,8 @@ def render_style_config(pixelle_video):
                         if tts_mode == "local":
                             tts_params["voice"] = selected_voice
                             tts_params["speed"] = tts_speed
+                        elif tts_mode == "qwen_tts":
+                            tts_params["voice"] = selected_voice
                         else:  # comfyui
                             tts_params["workflow"] = tts_workflow_key
                             if ref_audio_path:
@@ -829,11 +870,42 @@ def render_style_config(pixelle_video):
             # Prompt prefix input
             # Get current prompt_prefix from config (based on media type)
             current_prefix = comfyui_config.get(media_config_key, {}).get("prompt_prefix", "")
-        
+
+            # Style preset selector (grouped by 1-level category).
+            # Clicking a preset fills the prefix text area below.
+            from pixelle_video.prompts import IMAGE_STYLE_PRESETS
+            is_zh = get_language() == "zh_CN"
+            prefix_key = f"prompt_prefix_{media_config_key}"
+            if prefix_key not in st.session_state:
+                st.session_state[prefix_key] = current_prefix
+
+            with st.expander(tr("style.preset_title"), expanded=False):
+                # Group presets by category, preserving insertion order
+                grouped: dict[str, list[tuple[str, dict]]] = {}
+                for style_key, preset in IMAGE_STYLE_PRESETS.items():
+                    cat = preset["category"] if is_zh else preset.get("category_en", preset["category"])
+                    grouped.setdefault(cat, []).append((style_key, preset))
+
+                for cat, styles in grouped.items():
+                    st.caption(f"**{cat}**")
+                    cols = st.columns(len(styles))
+                    for col, (style_key, preset) in zip(cols, styles):
+                        name = preset["name"] if is_zh else preset.get("name_en", preset["name"])
+                        is_selected = st.session_state[prefix_key].strip() == preset["prefix"].strip()
+                        with col:
+                            if st.button(
+                                name,
+                                key=f"style_preset_{style_key}",
+                                use_container_width=True,
+                                type="primary" if is_selected else "secondary",
+                            ):
+                                st.session_state[prefix_key] = preset["prefix"]
+                                st.rerun()
+
             # Prompt prefix input (temporary, not saved to config)
             prompt_prefix = st.text_area(
                 tr('style.prompt_prefix'),
-                value=current_prefix,
+                key=prefix_key,
                 placeholder=tr("style.prompt_prefix_placeholder"),
                 height=80,
                 label_visibility="visible",
@@ -937,7 +1009,7 @@ def render_style_config(pixelle_video):
 
     return {
         "tts_inference_mode": tts_mode,
-        "tts_voice": selected_voice if tts_mode == "local" else None,
+        "tts_voice": selected_voice if tts_mode in ("local", "qwen_tts") else None,
         "tts_speed": tts_speed if tts_mode == "local" else None,
         "tts_workflow": tts_workflow_key if tts_mode == "comfyui" else None,
         "ref_audio": str(ref_audio_path) if ref_audio_path else None,

@@ -27,12 +27,16 @@ class APIProviderMediaService:
             "wan2.6-t2i",
         ],
         "openai": [
-            "gpt-image-2",
+            "gpt-image-2"
         ],
         "seedream": [
             "doubao-seedream-5-0-260128",
             "doubao-seedream-4-5-251128",
             "doubao-seedream-4-0-250828",
+        ],
+        "gemini": [
+            "gemini-3-pro-image",
+            "gemini-3.1-flash-image",
         ],
     }
 
@@ -680,6 +684,9 @@ class APIProviderMediaService:
             ark_api_key=cfg["ark"].get("api_key") or None,
             ark_base_url=cfg["ark"].get("base_url") or None,
             ark_local_proxy=local_proxy if cfg["ark"].get("use_proxy") else None,
+            gemini_api_key=cfg["gemini"].get("api_key") or None,
+            gemini_base_url=cfg["gemini"].get("base_url") or None,
+            gemini_local_proxy=local_proxy if cfg["gemini"].get("use_proxy") else None,
         )
 
     def _create_video_client(self):
