@@ -25,23 +25,27 @@ from web.utils.async_helpers import run_async
 from pixelle_video.config import config_manager
 
 
-def render_style_config(pixelle_video):
-    """Render style configuration section (middle column)"""
+def render_style_config(pixelle_video, key_prefix="digital_"):
+    """Render style configuration section (middle column).
+
+    key_prefix 命名空间所有 widget key，避免多 tab 共用本组件时 key 冲突
+    （st.tabs 每次渲染所有 tab）。digital_human 用默认 "digital_"，story 用 "story_"。
+    """
     # TTS Section (moved from left column)
     # ====================================================================
     with st.container(border=True):
         st.markdown(f"**{tr('section.tts')}**")
-        
+
         with st.expander(tr("help.feature_description"), expanded=False):
             st.markdown(f"**{tr('help.what')}**")
             st.markdown(tr("tts.what"))
             st.markdown(f"**{tr('help.how')}**")
             st.markdown(tr("tts.how"))
-        
+
         # Get TTS config
         comfyui_config = config_manager.get_comfyui_config()
         tts_config = comfyui_config["tts"]
-        
+
         # Inference mode selection
         tts_mode = st.radio(
             tr("tts.inference_mode"),
@@ -49,7 +53,7 @@ def render_style_config(pixelle_video):
             horizontal=True,
             format_func=lambda x: tr(f"tts.mode.{x}"),
             index=0 if tts_config.get("inference_mode", "local") == "local" else 1,
-            key="digital_tts_inference_mode"
+            key=f"{key_prefix}tts_inference_mode"
         )
         
         # Show hint based on mode
@@ -94,7 +98,7 @@ def render_style_config(pixelle_video):
                     tr("tts.voice_selector"),
                     voice_options,
                     index=default_voice_index,
-                    key="digital_tts_local_voice"
+                    key=f"{key_prefix}tts_local_voice"
                 )
                 
                 # Get actual voice ID
@@ -110,7 +114,7 @@ def render_style_config(pixelle_video):
                     value=saved_speed,
                     step=0.1,
                     format="%.1fx",
-                    key="digital_tts_local_speed"
+                    key=f"{key_prefix}tts_local_speed"
                 )
                 st.caption(tr("tts.speed_label", speed=f"{tts_speed:.1f}"))
             
@@ -129,7 +133,7 @@ def render_style_config(pixelle_video):
                 tr("tts.ref_audio"),
                 type=["mp3", "wav", "flac", "m4a", "aac", "ogg"],
                 help=tr("tts.ref_audio_help"),
-                key="digital_ref_audio_upload"
+                key=f"{key_prefix}ref_audio_upload"
             )
             
             # Save uploaded ref_audio to temp file if provided
@@ -158,11 +162,11 @@ def render_style_config(pixelle_video):
                 tr("tts.preview_text"),
                 value="大家好，这是一段测试语音。",
                 placeholder=tr("tts.preview_text_placeholder"),
-                key="digital_tts_preview_text"
+                key=f"{key_prefix}tts_preview_text"
             )
-            
+
             # Preview button
-            if st.button(tr("tts.preview_button"), key="gidital_preview_tts", use_container_width=True):
+            if st.button(tr("tts.preview_button"), key=f"{key_prefix}preview_tts", use_container_width=True):
                 with st.spinner(tr("tts.previewing")):
                     try:
                         # Build TTS params based on mode

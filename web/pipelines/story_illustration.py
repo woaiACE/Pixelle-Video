@@ -17,20 +17,24 @@ Story Illustration Pipeline UI — 4-step wizard.
 Step 1: 故事输入 + 提取角色/场景/道具（仅描述）
 Step 2: 资产库编辑 + 生成资产图（可单项重生）
 Step 3: LLM 分镜预览（旁白可编辑）
-Step 4: 生成视频（复用 render_output_preview）
+Step 4: 生成视频（直接调 story_illustration 管线，带进度与预览）
 """
 
 import json
+import os
 from typing import Any
 
 import streamlit as st
 from loguru import logger
 
-from web.i18n import tr
+from web.i18n import tr, get_language
 from web.pipelines.base import PipelineUI, register_pipeline_ui
 from web.utils.async_helpers import run_async
-from web.components.style_config import render_style_config
-from web.components.output_preview import render_output_preview
+# ponytail: 复用 digital_tts_config（命名空间 digital_* key），不与 standard tab 的
+# style_config（tts_inference_mode 等裸 key）冲突 —— st.tabs 每次渲染所有 tab。
+from web.components.digital_tts_config import render_style_config as render_tts_config
+from pixelle_video.config import config_manager
+from pixelle_video.models.progress import ProgressEvent
 from pixelle_video.prompts.story_prompts import (
     build_story_extraction_prompt,
     build_story_scenecut_prompt,
@@ -112,21 +116,22 @@ class StoryIllustrationPipelineUI(PipelineUI):
         style_keys = list(IMAGE_STYLE_PRESETS.keys())
         col_a, col_b = st.columns(2)
         with col_a:
-            art_style = st.selectbox("画风预设", style_keys, index=style_keys.index("watercolor") if "watercolor" in style_keys else 0, key="story_art_style")
+            art_style_key = st.selectbox("画风预设", style_keys, index=style_keys.index("watercolor") if "watercolor" in style_keys else 0, key="story_art_style_key")
         with col_b:
             provider = st.selectbox(
                 "图片生成 Provider",
                 ["api/gemini/gemini-3-pro-image", "api/seedream/doubao-seedream-5-0-260128", "api/dashscope/wan2.7-image"],
-                key="story_provider",
+                key="story_provider_input",
                 help="资产图与插图用同一 provider。Gemini 的 img2img 契约最干净。",
             )
 
-        # 风格/TTS/模板配置（复用现有组件，存起来给 Step4 用）
+        # 配音配置（复用 digital_tts_config，命名空间 key 不与 standard tab 冲突）
         st.markdown("---")
-        st.markdown(f"**{tr('section.style_config') if _has_tr('section.style_config') else '配音与模板'}**")
-        style_params = render_style_config(pixelle_video)
+        st.markdown(f"**{tr('section.tts') if _has_tr('section.tts') else '🎤 配音合成'}**")
+        style_params = render_tts_config(pixelle_video, key_prefix="story_")
         st.session_state[_STYLE_PARAMS] = style_params
-        st.session_state["story_art_style"] = art_style
+        # prompt_prefix 用预设的完整 prefix 串（不是 key），prompt 才能拿到画风描述
+        st.session_state["story_art_style"] = IMAGE_STYLE_PRESETS[art_style_key]["prefix"]
         st.session_state["story_provider"] = provider
         st.session_state["story_n_scenes"] = int(n_scenes)
 
@@ -307,38 +312,89 @@ class StoryIllustrationPipelineUI(PipelineUI):
 
         col1, col2 = st.columns([1, 2])
         with col1:
-            if st.button("⬅️ 上一步", use_container_width=True):
+            if st.button("⬅️ 上一步", use_container_width=True, key="story_step4_back"):
                 _set_step(3)
                 st.rerun()
         with col2:
-            st.caption(f"故事 {len(narrations)} 个分镜 · 资产库 {sum(len(lib.get(k,[])) for k in ('characters','scenes','props'))} 项 · 画风 {_ss('story_art_style','-')}")
+            st.caption(
+                f"故事 {len(narrations)} 个分镜 · "
+                f"资产库 {sum(len(lib.get(k, [])) for k in ('characters', 'scenes', 'props'))} 项 · "
+                f"画风 {_ss('story_art_style_key', '-')}"
+            )
 
-        # 组装参数，复用 render_output_preview 的生成按钮/进度/预览
-        video_params = {
-            "pipeline": self.name,
-            "text": _ss("story_text", ""),
-            "mode": "generate",
-            "n_scenes": _ss("story_n_scenes", 6),
-            "narrations": narrations,
-            "asset_library": lib,
-            "asset_provider": _ss("story_provider"),
-            "prompt_prefix": _ss("story_art_style", ""),
-            **style_params,
-        }
-        # 确保模板默认走 image 类型（插图）
-        if not video_params.get("frame_template"):
-            video_params["frame_template"] = "1080x1920/image_story.html"
-        if not video_params.get("media_workflow"):
-            video_params["media_workflow"] = _ss("story_provider")
+        # 不复用 render_output_preview：它内置 standard 的脚本预览门 + 重建 video_params
+        # 会丢掉 pipeline 参数（→ 跑成 standard），且 script_editor 等 key 与 standard tab 冲突。
+        # 这里直接调 story_illustration 管线。
+        with st.container(border=True):
+            if not config_manager.validate():
+                st.warning(tr("settings.not_configured") if _has_tr("settings.not_configured") else "系统未配置，请先在设置中完成 LLM/Provider 配置")
 
-        render_output_preview(pixelle_video, video_params)
+            if st.button(
+                tr("btn.generate") if _has_tr("btn.generate") else "🎬 生成视频",
+                type="primary", use_container_width=True, key="story_btn_generate",
+            ):
+                if not narrations:
+                    st.error("没有分镜旁白，请返回上一步确认分镜")
+                    st.stop()
+
+                video_params = {
+                    "pipeline": self.name,
+                    "text": _ss("story_text", ""),
+                    "mode": "generate",
+                    "n_scenes": _ss("story_n_scenes", 6),
+                    "narrations": narrations,
+                    "asset_library": lib,
+                    "asset_provider": _ss("story_provider"),
+                    "prompt_prefix": _ss("story_art_style", ""),
+                    "frame_template": "1080x1920/image_story.html",
+                    "media_workflow": _ss("story_provider"),
+                    **style_params,
+                }
+
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+
+                def update_progress(event: ProgressEvent):
+                    key = f"progress.{event.event_type}"
+                    msg = tr(key) if _has_tr(key) else event.event_type
+                    if event.frame_current and event.frame_total:
+                        msg = f"{msg} ({event.frame_current}/{event.frame_total})"
+                    status_text.text(msg)
+                    progress_bar.progress(min(int(event.progress * 100), 99))
+
+                video_params["progress_callback"] = update_progress
+                try:
+                    result = run_async(pixelle_video.generate_video(**video_params))
+                    progress_bar.progress(100)
+                    status_text.text(tr("status.success") if _has_tr("status.success") else "✅ 完成")
+                    st.success(
+                        tr("status.video_generated", path=result.video_path)
+                        if _has_tr("status.video_generated")
+                        else f"✅ 视频已生成：{result.video_path}"
+                    )
+                    if os.path.exists(result.video_path):
+                        st.video(result.video_path)
+                        with open(result.video_path, "rb") as vf:
+                            st.download_button(
+                                label="⬇️ 下载视频" if get_language() == "zh_CN" else "⬇️ Download",
+                                data=vf.read(),
+                                file_name=os.path.basename(result.video_path),
+                                mime="video/mp4",
+                                use_container_width=True,
+                                key="story_dl_video",
+                            )
+                except Exception as e:
+                    progress_bar.empty()
+                    status_text.empty()
+                    st.error(f"生成失败：{e}")
+                    logger.exception(e)
 
 
 def _has_tr(key: str) -> bool:
     """检查 i18n key 是否存在，避免 KeyError。"""
     try:
         from web.i18n import _locales, _current_language
-        return key in _locales.get(_current_language, {})
+        return key in _locales.get(_current_language, {}).get("t", {})
     except Exception:
         return False
 

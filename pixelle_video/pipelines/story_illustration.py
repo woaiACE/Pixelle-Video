@@ -87,7 +87,7 @@ class StoryIllustrationPipeline(StandardPipeline):
 
     async def plan_visuals(self, ctx: PipelineContext):
         """每场景：插图 prompt + 选定引用的资产图路径（img2img 参考）。"""
-        frame_template = ctx.params.get("frame_template") or "1080x1920/default.html"
+        frame_template = ctx.params.get("frame_template") or "1080x1920/image_story.html"
         template_name = Path(frame_template).name
         from pixelle_video.utils.template_util import get_template_type
         template_type = get_template_type(template_name)
@@ -184,9 +184,9 @@ class StoryIllustrationPipeline(StandardPipeline):
                         output_path=out,
                     )
                     if media_result.is_image:
-                        it["image_path"] = await self.core.frame_processor._download_media(
-                            media_result.url, 0, ctx.task_id, "image"
-                        )
+                        # media() 落盘到 out (api_media os.replace)，url 即本地路径；
+                        # 不调 _download_media —— 它按 frame_index=0 生成路径会把所有资产图覆盖到 01_image.png
+                        it["image_path"] = media_result.url
                         logger.info(f"  🖼️ asset {kind}/{it.get('name')} generated")
                 except Exception as e:
                     logger.warning(f"  ⚠️ asset {kind}/{it.get('name')} gen failed (skip): {e}")
