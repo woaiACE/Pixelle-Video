@@ -4,6 +4,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #     http://www.apache.org/licenses/LICENSE-2.0
+#
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -31,7 +32,7 @@ def render_output_preview(pixelle_video, video_params):
     """Render output preview section (right column)"""
     # Check if batch mode
     is_batch = video_params.get("batch_mode", False)
-    
+
     if is_batch:
         # Batch generation mode
         render_batch_output(pixelle_video, video_params)
@@ -56,6 +57,9 @@ def _generate_script_only(pixelle_video, text, mode, n_scenes, split_mode, title
     # Store in session state for next step
     st.session_state.generated_script = narrations
     st.session_state.script_ready = True
+    # ponytail: snapshot the inputs that produced this script so a later
+    # topic/n_scenes/mode change invalidates the stale confirmed script.
+    st.session_state.script_snapshot = {"text": text, "n_scenes": n_scenes, "mode": mode}
     return narrations
 
 
@@ -82,6 +86,19 @@ def render_single_output(pixelle_video, video_params):
     api_video_params = video_params.get("api_video_params")
     prompt_prefix = video_params.get("prompt_prefix", "")
 
+    # Invalidate a stale confirmed script if the inputs that produced it changed,
+    # otherwise the pipeline would generate video B's topic with script A's narrations.
+    snapshot = st.session_state.get("script_snapshot")
+    if snapshot and (
+        snapshot.get("text") != text
+        or snapshot.get("n_scenes") != n_scenes
+        or snapshot.get("mode") != mode
+    ):
+        st.session_state.script_ready = False
+        st.session_state.generated_script = None
+        st.session_state.final_narrations = None
+        st.session_state.script_snapshot = None
+
     with st.container(border=True):
         st.markdown(f"**{tr('section.video_generation')}**")
 
@@ -92,7 +109,7 @@ def render_single_output(pixelle_video, video_params):
         # ========== Script Preview Step (New) ==========
         if mode == "generate" and not st.session_state.get("script_ready", False):
             # Only show script preview for "generate" mode (not fixed mode)
-            if st.button("📝 生成脚本并预览", type="primary", use_container_width=True):
+            if st.button("📝 生成脚本并预览", type="primary", width="stretch"):
                 if not text:
                     st.error(tr("status.error", error="请输入内容"))
                     st.stop()
@@ -116,12 +133,12 @@ def render_single_output(pixelle_video, video_params):
 
                 col1, col2 = st.columns(2)
                 with col1:
-                    if st.button("❌ 重新生成", use_container_width=True):
+                    if st.button("❌ 重新生成", width="stretch"):
                         st.session_state.script_ready = False
                         st.session_state.generated_script = None
                         st.rerun()
                 with col2:
-                    if st.button("✅ 确认脚本，继续生成视频", type="primary", use_container_width=True):
+                    if st.button("✅ 确认脚本，继续生成视频", type="primary", width="stretch"):
                         # Parse edited script back to narrations list
                         edited_narrations = [s.strip() for s in edited_script.split("\n\n") if s.strip()]
                         # Remove "镜头 N: " prefix if present
@@ -138,7 +155,7 @@ def render_single_output(pixelle_video, video_params):
         can_generate = (mode != "generate") or st.session_state.get("final_narrations") is not None
 
         if can_generate:
-            if st.button(tr("btn.generate"), type="primary", use_container_width=True):
+            if st.button(tr("btn.generate"), type="primary", width="stretch"):
                 # Validate system configuration
                 if not config_manager.validate():
                     st.error(tr("settings.not_configured"))
@@ -149,200 +166,200 @@ def render_single_output(pixelle_video, video_params):
                     st.error(tr("error.input_required"))
                     st.stop()
 
-            from pixelle_video.utils.template_util import get_template_type
-            if frame_template and get_template_type(frame_template) == "video" and not workflow_key:
-                st.error(
-                    "请选择视频生成工作流或 API 视频模型后再生成。"
-                    if get_language() == "zh_CN"
-                    else "Please select a video workflow or API video model before generating."
-                )
-                st.stop()
-            
-            # Show progress
-            progress_bar = st.progress(0)
-            status_text = st.empty()
-            
-            # Record start time for generation
-            import time
-            start_time = time.time()
-            
-            try:
-                # Progress callback to update UI
-                def update_progress(event: ProgressEvent):
-                    """Update progress bar and status text from ProgressEvent"""
-                    # Translate event to user-facing message
-                    if event.event_type == "frame_step":
-                        # Frame step: "分镜 3/5 - 步骤 2/4: 生成插图"
-                        action_key = f"progress.step_{event.action}"
-                        action_text = tr(action_key)
-                        message = tr(
-                            "progress.frame_step",
-                            current=event.frame_current,
-                            total=event.frame_total,
-                            step=event.step,
-                            action=action_text
-                        )
-                    elif event.event_type == "processing_frame":
-                        # Processing frame: "分镜 3/5"
-                        message = tr(
-                            "progress.frame",
-                            current=event.frame_current,
-                            total=event.frame_total
-                        )
+                from pixelle_video.utils.template_util import get_template_type
+                if frame_template and get_template_type(frame_template) == "video" and not workflow_key:
+                    st.error(
+                        "请选择视频生成工作流或 API 视频模型后再生成。"
+                        if get_language() == "zh_CN"
+                        else "Please select a video workflow or API video model before generating."
+                    )
+                    st.stop()
+
+                # Show progress
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+
+                # Record start time for generation
+                import time
+                start_time = time.time()
+
+                try:
+                    # Progress callback to update UI
+                    def update_progress(event: ProgressEvent):
+                        """Update progress bar and status text from ProgressEvent"""
+                        # Translate event to user-facing message
+                        if event.event_type == "frame_step":
+                            # Frame step: "分镜 3/5 - 步骤 2/4: 生成插图"
+                            action_key = f"progress.step_{event.action}"
+                            action_text = tr(action_key)
+                            message = tr(
+                                "progress.frame_step",
+                                current=event.frame_current,
+                                total=event.frame_total,
+                                step=event.step,
+                                action=action_text
+                            )
+                        elif event.event_type == "processing_frame":
+                            # Processing frame: "分镜 3/5"
+                            message = tr(
+                                "progress.frame",
+                                current=event.frame_current,
+                                total=event.frame_total
+                            )
+                        else:
+                            # Simple events: use i18n key directly
+                            message = tr(f"progress.{event.event_type}")
+
+                        # Append extra_info if available (e.g., batch progress)
+                        if event.extra_info:
+                            message = f"{message} - {event.extra_info}"
+
+                        status_text.text(message)
+                        progress_bar.progress(min(int(event.progress * 100), 99))  # Cap at 99% until complete
+
+                    # Generate video (directly pass parameters)
+                    # Note: media_width and media_height are auto-determined from template
+                    video_params = {
+                        "text": text,
+                        "mode": mode,
+                        "title": title if title else None,
+                        "n_scenes": n_scenes,
+                        "split_mode": split_mode,
+                        "media_workflow": workflow_key,
+                        "api_video_params": api_video_params,
+                        "frame_template": frame_template,
+                        "prompt_prefix": prompt_prefix,
+                        "bgm_path": bgm_path,
+                        "bgm_volume": bgm_volume if bgm_path else 0.2,
+                        "progress_callback": update_progress,
+                        "media_width": st.session_state.get('template_media_width'),
+                        "media_height": st.session_state.get('template_media_height'),
+                    }
+
+                    # Pass confirmed script to pipeline (skip re-generation)
+                    if st.session_state.get("final_narrations"):
+                        video_params["narrations"] = st.session_state.get("final_narrations")
+                        video_params["n_scenes"] = len(video_params["narrations"])
+                    # Add TTS parameters based on mode
+                    video_params["tts_inference_mode"] = tts_mode
+                    if tts_mode == "local":
+                        video_params["tts_voice"] = selected_voice
+                        video_params["tts_speed"] = tts_speed
+                    elif tts_mode == "qwen_tts":
+                        video_params["tts_voice"] = selected_voice
+                    else:  # comfyui
+                        video_params["tts_workflow"] = tts_workflow_key
+                        if ref_audio_path:
+                            video_params["ref_audio"] = str(ref_audio_path)
+
+                    # Add custom template parameters if any
+                    if custom_values_for_video:
+                        video_params["template_params"] = custom_values_for_video
+
+                    result = run_async(pixelle_video.generate_video(**video_params))
+
+                    # Calculate total generation time
+                    total_generation_time = time.time() - start_time
+
+                    progress_bar.progress(100)
+                    status_text.text(tr("status.success"))
+
+                    # Clear script state for next generation
+                    st.session_state.script_ready = False
+                    st.session_state.generated_script = None
+                    st.session_state.final_narrations = None
+
+                    # Display success message
+                    st.success(tr("status.video_generated", path=result.video_path))
+
+                    st.markdown("---")
+
+                    # Video information (compact display)
+                    file_size_mb = result.file_size / (1024 * 1024)
+
+                    # Parse video size from template path
+                    from pixelle_video.utils.template_util import parse_template_size, resolve_template_path
+                    template_path = resolve_template_path(result.storyboard.config.frame_template)
+                    video_width, video_height = parse_template_size(template_path)
+
+                    info_text = (
+                        f"⏱️ {tr('info.generation_time')} {total_generation_time:.1f}s   "
+                        f"📦 {file_size_mb:.2f}MB   "
+                        f"🎬 {len(result.storyboard.frames)}{tr('info.scenes_unit')}   "
+                        f"📐 {video_width}x{video_height}"
+                    )
+                    st.caption(info_text)
+
+                    # Image prompts (LLM 推理结果，默认折叠，供用户评估提示词质量)
+                    with st.expander(f"🧠 {tr('history.detail.image_prompt')}（LLM）", expanded=False):
+                        for frame in result.storyboard.frames:
+                            st.markdown(f"**{tr('history.detail.frame')} {frame.index + 1}**")
+                            st.caption(f"{tr('history.detail.narration')}: {frame.narration}")
+                            st.caption(
+                                f"{tr('history.detail.image_prompt')}: "
+                                f"{frame.image_prompt if frame.image_prompt else '—'}"
+                            )
+                            st.markdown("---")
+
+                    st.markdown("---")
+
+                    # Video preview
+                    if os.path.exists(result.video_path):
+                        st.video(result.video_path)
+
+                        # Download button
+                        with open(result.video_path, "rb") as video_file:
+                            video_bytes = video_file.read()
+                            video_filename = os.path.basename(result.video_path)
+                            st.download_button(
+                                label="⬇️ 下载视频" if get_language() == "zh_CN" else "⬇️ Download Video",
+                                data=video_bytes,
+                                file_name=video_filename,
+                                mime="video/mp4",
+                                width="stretch"
+                            )
                     else:
-                        # Simple events: use i18n key directly
-                        message = tr(f"progress.{event.event_type}")
-                    
-                    # Append extra_info if available (e.g., batch progress)
-                    if event.extra_info:
-                        message = f"{message} - {event.extra_info}"
-                    
-                    status_text.text(message)
-                    progress_bar.progress(min(int(event.progress * 100), 99))  # Cap at 99% until complete
-                
-                # Generate video (directly pass parameters)
-                # Note: media_width and media_height are auto-determined from template
-                video_params = {
-                    "text": text,
-                    "mode": mode,
-                    "title": title if title else None,
-                    "n_scenes": n_scenes,
-                    "split_mode": split_mode,
-                    "media_workflow": workflow_key,
-                    "api_video_params": api_video_params,
-                    "frame_template": frame_template,
-                    "prompt_prefix": prompt_prefix,
-                    "bgm_path": bgm_path,
-                    "bgm_volume": bgm_volume if bgm_path else 0.2,
-                    "progress_callback": update_progress,
-                    "media_width": st.session_state.get('template_media_width'),
-                    "media_height": st.session_state.get('template_media_height'),
-                }
+                        st.error(tr("status.video_not_found", path=result.video_path))
 
-                # Pass confirmed script to pipeline (skip re-generation)
-                if st.session_state.get("final_narrations"):
-                    video_params["narrations"] = st.session_state.get("final_narrations")
-                    video_params["n_scenes"] = len(video_params["narrations"])
-                # Add TTS parameters based on mode
-                video_params["tts_inference_mode"] = tts_mode
-                if tts_mode == "local":
-                    video_params["tts_voice"] = selected_voice
-                    video_params["tts_speed"] = tts_speed
-                elif tts_mode == "qwen_tts":
-                    video_params["tts_voice"] = selected_voice
-                else:  # comfyui
-                    video_params["tts_workflow"] = tts_workflow_key
-                    if ref_audio_path:
-                        video_params["ref_audio"] = str(ref_audio_path)
-                
-                # Add custom template parameters if any
-                if custom_values_for_video:
-                    video_params["template_params"] = custom_values_for_video
-                
-                result = run_async(pixelle_video.generate_video(**video_params))
-                
-                # Calculate total generation time
-                total_generation_time = time.time() - start_time
-                
-                progress_bar.progress(100)
-                status_text.text(tr("status.success"))
-
-                # Clear script state for next generation
-                st.session_state.script_ready = False
-                st.session_state.generated_script = None
-                st.session_state.final_narrations = None
-
-                # Display success message
-                st.success(tr("status.video_generated", path=result.video_path))
-                
-                st.markdown("---")
-                
-                # Video information (compact display)
-                file_size_mb = result.file_size / (1024 * 1024)
-                
-                # Parse video size from template path
-                from pixelle_video.utils.template_util import parse_template_size, resolve_template_path
-                template_path = resolve_template_path(result.storyboard.config.frame_template)
-                video_width, video_height = parse_template_size(template_path)
-                
-                info_text = (
-                    f"⏱️ {tr('info.generation_time')} {total_generation_time:.1f}s   "
-                    f"📦 {file_size_mb:.2f}MB   "
-                    f"🎬 {len(result.storyboard.frames)}{tr('info.scenes_unit')}   "
-                    f"📐 {video_width}x{video_height}"
-                )
-                st.caption(info_text)
-
-                # Image prompts (LLM 推理结果，默认折叠，供用户评估提示词质量)
-                with st.expander(f"🧠 {tr('history.detail.image_prompt')}（LLM）", expanded=False):
-                    for frame in result.storyboard.frames:
-                        st.markdown(f"**{tr('history.detail.frame')} {frame.index + 1}**")
-                        st.caption(f"{tr('history.detail.narration')}: {frame.narration}")
-                        st.caption(
-                            f"{tr('history.detail.image_prompt')}: "
-                            f"{frame.image_prompt if frame.image_prompt else '—'}"
-                        )
-                        st.markdown("---")
-
-                st.markdown("---")
-
-                # Video preview
-                if os.path.exists(result.video_path):
-                    st.video(result.video_path)
-                    
-                    # Download button
-                    with open(result.video_path, "rb") as video_file:
-                        video_bytes = video_file.read()
-                        video_filename = os.path.basename(result.video_path)
-                        st.download_button(
-                            label="⬇️ 下载视频" if get_language() == "zh_CN" else "⬇️ Download Video",
-                            data=video_bytes,
-                            file_name=video_filename,
-                            mime="video/mp4",
-                            use_container_width=True
-                        )
-                else:
-                    st.error(tr("status.video_not_found", path=result.video_path))
-                
-            except Exception as e:
-                status_text.text("")
-                progress_bar.empty()
-                st.error(tr("status.error", error=str(e)))
-                logger.exception(e)
-                st.stop()
+                except Exception as e:
+                    status_text.text("")
+                    progress_bar.empty()
+                    st.error(tr("status.error", error=str(e)))
+                    logger.exception(e)
+                    st.stop()
 
 
 def render_batch_output(pixelle_video, video_params):
     """Render batch generation output (minimal, redirect to History)"""
     topics = video_params.get("topics", [])
-    
+
     with st.container(border=True):
         st.markdown(f"**{tr('batch.section_generation')}**")
-        
+
         # Check if topics are provided
         if not topics:
             st.warning(tr("batch.no_topics"))
             return
-        
+
         # Check system configuration
         if not config_manager.validate():
             st.warning(tr("settings.not_configured"))
             return
-        
+
         batch_count = len(topics)
-        
+
         # Display batch info
         st.info(tr("batch.prepare_info", count=batch_count))
-        
+
         # Estimated time (optional)
         estimated_minutes = batch_count * 3  # Assume 3 minutes per video
         st.caption(tr("batch.estimated_time", minutes=estimated_minutes))
-        
+
         # Generate button with batch semantics
         if st.button(
             tr("batch.generate_button", count=batch_count),
             type="primary",
-            use_container_width=True,
+            width="stretch",
             help=tr("batch.generate_help")
         ):
             # Prepare shared config
@@ -360,13 +377,18 @@ def render_batch_output(pixelle_video, video_params):
                 "media_height": video_params.get("media_height"),
             }
             # Add TTS parameters based on mode (only add non-None values)
-            if shared_config["tts_inference_mode"] == "local":
+            tts_mode = shared_config["tts_inference_mode"]
+            if tts_mode == "local":
                 tts_voice = video_params.get("tts_voice")
                 tts_speed = video_params.get("tts_speed")
                 if tts_voice:
                     shared_config["tts_voice"] = tts_voice
                 if tts_speed:
                     shared_config["tts_speed"] = tts_speed
+            elif tts_mode == "qwen_tts":
+                tts_voice = video_params.get("tts_voice")
+                if tts_voice:
+                    shared_config["tts_voice"] = tts_voice
             else:  # comfyui
                 tts_workflow = video_params.get("tts_workflow")
                 if tts_workflow:
@@ -374,24 +396,24 @@ def render_batch_output(pixelle_video, video_params):
                 ref_audio = video_params.get("ref_audio")
                 if ref_audio:
                     shared_config["ref_audio"] = str(ref_audio)
-            
+
             # Add template parameters
             if video_params.get("template_params"):
                 shared_config["template_params"] = video_params["template_params"]
-            
+
             # UI containers
             overall_progress_container = st.container()
             current_task_container = st.container()
-            
+
             # Overall progress UI
             overall_progress_bar = overall_progress_container.progress(0)
             overall_status = overall_progress_container.empty()
-            
+
             # Current task progress UI
             current_task_title = current_task_container.empty()
             current_task_progress = current_task_container.progress(0)
             current_task_status = current_task_container.empty()
-            
+
             # Overall progress callback
             def update_overall_progress(current, total, topic):
                 progress = (current - 1) / total
@@ -399,13 +421,13 @@ def render_batch_output(pixelle_video, video_params):
                 overall_status.markdown(
                     f"📊 **{tr('batch.overall_progress')}**: {current}/{total} ({int(progress * 100)}%)"
                 )
-            
+
             # Single task progress callback factory
             def make_task_progress_callback(task_idx, topic):
                 def callback(event: ProgressEvent):
                     # Display current task title
                     current_task_title.markdown(f"🎬 **{tr('batch.current_task')} {task_idx}**: {topic}")
-                    
+
                     # Update task detailed progress
                     if event.event_type == "frame_step":
                         action_key = f"progress.step_{event.action}"
@@ -425,19 +447,19 @@ def render_batch_output(pixelle_video, video_params):
                         )
                     else:
                         message = tr(f"progress.{event.event_type}")
-                    
+
                     current_task_progress.progress(event.progress)
                     current_task_status.text(message)
-                
+
                 return callback
-            
+
             # Execute batch generation
             from web.utils.batch_manager import SimpleBatchManager
             import time
-            
+
             batch_manager = SimpleBatchManager()
             start_time = time.time()
-            
+
             batch_result = batch_manager.execute_batch(
                 pixelle_video=pixelle_video,
                 topics=topics,
@@ -445,35 +467,35 @@ def render_batch_output(pixelle_video, video_params):
                 overall_progress_callback=update_overall_progress,
                 task_progress_callback_factory=make_task_progress_callback
             )
-            
+
             total_time = time.time() - start_time
-            
+
             # Clear progress displays
             overall_progress_bar.progress(1.0)
             overall_status.markdown(f"✅ **{tr('batch.completed')}**")
             current_task_title.empty()
             current_task_progress.empty()
             current_task_status.empty()
-            
+
             # Display results summary
             st.markdown("---")
             st.markdown(f"**{tr('batch.results_title')}**")
-            
+
             col1, col2, col3 = st.columns(3)
             col1.metric(tr("batch.total"), batch_result["total_count"])
             col2.metric(f"✅ {tr('batch.success')}", batch_result["success_count"])
             col3.metric(f"❌ {tr('batch.failed')}", batch_result["failed_count"])
-            
+
             # Display total time
             minutes = int(total_time / 60)
             seconds = int(total_time % 60)
             st.caption(f"⏱️ {tr('batch.total_time')}: {minutes}{tr('batch.minutes')}{seconds}{tr('batch.seconds')}")
-            
+
             # Redirect to History page
             st.markdown("---")
             st.success(tr("batch.success_message"))
             st.info(tr("batch.view_in_history"))
-            
+
             # Button to go to History page using JavaScript URL navigation
             st.markdown(
                 f"""
@@ -496,17 +518,16 @@ def render_batch_output(pixelle_video, video_params):
                 """,
                 unsafe_allow_html=True
             )
-            
+
             # Show failed tasks if any
             if batch_result["errors"]:
                 st.markdown("---")
                 st.markdown(f"#### {tr('batch.failed_list')}")
-                
+
                 for item in batch_result["errors"]:
                     with st.expander(f"🔴 {tr('batch.task')} {item['index']}: {item['topic']}", expanded=False):
                         st.error(f"**{tr('batch.error')}**: {item['error']}")
-                        
+
                         # Detailed error (collapsed)
                         with st.expander(tr("batch.error_detail")):
                             st.code(item['traceback'], language="python")
-    

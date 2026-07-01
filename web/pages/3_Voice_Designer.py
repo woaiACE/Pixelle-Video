@@ -223,9 +223,9 @@ with st.container(border=True):
 
     col_a, col_b = st.columns([1, 1])
     with col_a:
-        ai_generate = st.button("🤖 AI 自动优化描述", use_container_width=True, type="secondary")
+        ai_generate = st.button("🤖 AI 自动优化描述", width="stretch", type="secondary")
     with col_b:
-        create_btn = st.button("🎨 生成音色并试听", use_container_width=True, type="primary")
+        create_btn = st.button("🎨 生成音色并试听", width="stretch", type="primary")
 
     # AI 优化
     if ai_generate and user_input:
@@ -275,10 +275,10 @@ with st.container(border=True):
             data=st.session_state.current_preview,
             file_name=download_name,
             mime="audio/wav",
-            use_container_width=True
+            width="stretch"
         )
 
-        if st.button("💾 保存到本地库", use_container_width=True):
+        if st.button("💾 保存到本地库", width="stretch"):
             file_id = save_voice_design(
                 st.session_state.current_name,
                 st.session_state.current_prompt,
@@ -318,11 +318,11 @@ else:
                             file_name=f"{voice.get('name', 'voive')}.wav",
                             mime="audio/wav",
                             key=f"dl_{voice['id']}",
-                            use_container_width=True
+                            width="stretch"
                         )
 
                 # 复制ID按钮
-                if st.button("📋 复制 Voice ID", key=f"copy_{voice['id']}", use_container_width=True):
+                if st.button("📋 复制 Voice ID", key=f"copy_{voice['id']}", width="stretch"):
                     st.code(voice.get("voice_id", ""))
                     st.toast("已复制到剪贴板")
 

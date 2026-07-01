@@ -77,6 +77,11 @@ class StoryboardFrame:
     # Story-illustration: reference images (asset library) for img2img consistency.
     # Empty for standard/asset_based pipelines — no behavior change.
     reference_image_paths: List[str] = field(default_factory=list)
+
+    # Story-illustration: photography rules per panel (optional, None for standard pipeline).
+    shot_type: Optional[str] = None        # 景别: 特写/近景/中景/全景/远景
+    camera_move: Optional[str] = None      # 运镜: 固定/推/拉/横移/跟随/仰俯
+    lighting: Optional[str] = None         # 光照: 顺光/逆光/侧光/顶光/暖光/冷光
     
     def __post_init__(self):
         if self.created_at is None:

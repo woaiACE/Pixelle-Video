@@ -197,8 +197,14 @@ class LLMService:
                 result = raw_content if isinstance(raw_content, str) else ""
                 logger.debug(f"LLM response length: {len(result)} chars")
                 if not result or not result.strip():
+                    # 记录 finish_reason / usage 定位空响应根因
+                    choice = response.choices[0]
+                    usage = getattr(response, "usage", None)
                     logger.warning(
-                        f"LLM returned empty text content (model={final_model}, base_url={client.base_url})"
+                        f"LLM returned empty text content (model={final_model}, base_url={client.base_url}, "
+                        f"finish_reason={getattr(choice, 'finish_reason', '?')}, "
+                        f"prompt_tokens={getattr(usage, 'prompt_tokens', '?')}, "
+                        f"completion_tokens={getattr(usage, 'completion_tokens', '?')})"
                     )
                 
                 return result

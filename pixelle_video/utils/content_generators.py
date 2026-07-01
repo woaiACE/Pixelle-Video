@@ -492,15 +492,31 @@ def _parse_json(text: str) -> dict:
             return json.loads(match.group(1))
         except json.JSONDecodeError:
             pass
-    
-    # Try to find any JSON object in the text
-    json_pattern = r'\{[^{}]*(?:"narrations"|"image_prompts")\s*:\s*\[[^\]]*\][^{}]*\}'
-    match = re.search(json_pattern, text, re.DOTALL)
-    if match:
+
+    # Markdown 开了但未闭合（LLM 响应被 max_tokens 截断）→ 取 ``` 后所有内容
+    trunc_match = re.search(r'```(?:json)?\s*([\s\S]+)', text)
+    if trunc_match:
+        candidate = trunc_match.group(1).strip()
         try:
-            return json.loads(match.group(0))
+            return json.loads(candidate)
         except json.JSONDecodeError:
-            pass
-    
+            # 尝试补全截断的 JSON（缺 ] 和 }）
+            for suffix in (']}', '}', ']', ')]}'):
+                try:
+                    return json.loads(candidate + suffix)
+                except json.JSONDecodeError:
+                    continue
+
+    # Try to find any JSON object/array in the text (first { to last } or [ to last ])
+    # ponytail: 通用提取，不依赖特定 key 名（旧版硬编码 narrations/image_prompts 漏 scenes 等）
+    for opener, closer in (("{", "}"), ("[", "]")):
+        start = text.find(opener)
+        end = text.rfind(closer)
+        if start != -1 and end > start:
+            try:
+                return json.loads(text[start:end + 1])
+            except json.JSONDecodeError:
+                pass
+
     # If all fails, raise error
     raise json.JSONDecodeError("No valid JSON found", text, 0)

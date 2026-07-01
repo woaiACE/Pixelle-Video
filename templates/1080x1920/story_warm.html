@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="template:media-width" content="1024">
+    <meta name="template:media-height" content="1024">
+    <style>
+        html { margin: 0; padding: 0; }
+        body {
+            margin: 0; padding: 0;
+            width: 1080px;
+            background: #fef0e6;
+            font-family: 'PingFang SC', 'Source Han Sans', 'Microsoft YaHei', cursive;
+            position: relative;
+            overflow: hidden;
+        }
+        .page-container {
+            width: 1080px; height: 1920px;
+            padding: 70px 55px 80px 55px;
+            box-sizing: border-box;
+            display: flex; flex-direction: column;
+            gap: 38px;
+            position: relative;
+        }
+        /* 温暖风：柔光圆点背景 */
+        .dot { position: absolute; border-radius: 50%; background: #f7c8a8; opacity: 0.4; }
+        .dot.d1 { width: 120px; height: 120px; top: 40px; right: 50px; }
+        .dot.d2 { width: 80px; height: 80px; bottom: 120px; left: 40px; background: #fcd5b5; }
+        .dot.d3 { width: 60px; height: 60px; top: 400px; left: 30px; background: #f9b894; }
+
+        .title-bar { text-align: center; position: relative; z-index: 1; }
+        .title-bar .title {
+            font-size: 52px; font-weight: 700; color: #b5532a;
+            letter-spacing: 4px; line-height: 1.3;
+        }
+        .title-bar .subtitle-deco {
+            width: 80px; height: 4px; background: #f7a878;
+            margin: 16px auto 0; border-radius: 2px;
+        }
+
+        .image-frame {
+            flex: 1; border-radius: 24px; overflow: hidden;
+            box-shadow: 0 14px 44px rgba(181, 83, 42, 0.22);
+            border: 10px solid #fff;
+            background: #fff;
+            display: flex; align-items: center; justify-content: center;
+            position: relative; z-index: 1;
+        }
+        .image-frame img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+        .narration {
+            min-height: 170px; display: flex; align-items: center; justify-content: center;
+            padding: 0 40px; position: relative; z-index: 1;
+        }
+        .narration .text {
+            font-size: 44px; color: #7a3a1a; text-align: center;
+            line-height: 1.8; font-weight: 500; letter-spacing: 2px;
+            font-style: italic;
+        }
+        .narration .quote-l, .narration .quote-r {
+            font-size: 80px; color: #f7a878; line-height: 0;
+            position: relative; top: 20px;
+        }
+
+        .footer {
+            display: flex; align-items: center; justify-content: space-between;
+            padding-top: 10px; position: relative; z-index: 1;
+        }
+        .page-num { font-size: 26px; color: #b5532a; font-weight: 600; }
+        .brand { font-size: 22px; color: #b5532a; }
+    </style>
+</head>
+<body>
+    <div class="page-container">
+        <div class="dot d1"></div><div class="dot d2"></div><div class="dot d3"></div>
+
+        <div class="title-bar">
+            <div class="title">{{title}}</div>
+            <div class="subtitle-deco"></div>
+        </div>
+
+        <div class="image-frame"><img src="{{image}}" alt="Story"></div>
+
+        <div class="narration">
+            <span class="quote-l">“</span>
+            <div class="text">{{text}}</div>
+            <span class="quote-r">”</span>
+        </div>
+
+        <div class="footer">
+            <div class="page-num">{{index}} / {{page_count=8}}</div>
+            <div class="brand">{{brand=Pixelle-Video}}</div>
+        </div>
+    </div>
+</body>
+</html>
