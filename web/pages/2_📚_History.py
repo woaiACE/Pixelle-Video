@@ -76,6 +76,16 @@ def format_datetime(iso_string: str) -> str:
         return iso_string
 
 
+def format_task_duration(metadata: dict) -> str:
+    """Wall-clock duration between created_at and completed_at."""
+    try:
+        created = datetime.fromisoformat(metadata["created_at"])
+        completed = datetime.fromisoformat(metadata.get("completed_at") or "")
+        return format_duration((completed - created).total_seconds())
+    except Exception:
+        return "N/A"
+
+
 def truncate_text(text: str, max_length: int = 60) -> str:
     """Truncate text to max length"""
     if len(text) <= max_length:
@@ -153,7 +163,7 @@ def _render_resume_execution(pixelle_video, task_id: str, title: str):
             f"▶️ {tr('history.resume.button')}",
             key=f"resume_btn_{task_id}",
             type="primary",
-            use_container_width=True,
+            width="stretch",
         ):
             st.session_state[flag] = True
             st.rerun()
@@ -339,7 +349,7 @@ def render_grid_task_card(task: dict, pixelle_video):
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            if st.button("👁️", key=f"view_{task_id}", help=tr("history.task_card.view_detail"), use_container_width=True):
+            if st.button("👁️", key=f"view_{task_id}", help=tr("history.task_card.view_detail"), width="stretch"):
                 st.session_state[f"detail_{task_id}"] = True
                 st.rerun()
         
@@ -353,13 +363,13 @@ def render_grid_task_card(task: dict, pixelle_video):
                         mime="video/mp4",
                         key=f"download_{task_id}",
                         help=tr("history.task_card.download"),
-                        use_container_width=True
+                        width="stretch"
                     )
             else:
-                st.button("⬇️", key=f"download_disabled_{task_id}", disabled=True, use_container_width=True)
+                st.button("⬇️", key=f"download_disabled_{task_id}", disabled=True, width="stretch")
         
         with col3:
-            if st.button("🗑️", key=f"delete_{task_id}", help=tr("history.task_card.delete"), use_container_width=True):
+            if st.button("🗑️", key=f"delete_{task_id}", help=tr("history.task_card.delete"), width="stretch"):
                 st.session_state[f"confirm_delete_{task_id}"] = True
                 st.rerun()
         
@@ -368,7 +378,7 @@ def render_grid_task_card(task: dict, pixelle_video):
             st.warning("⚠️ 确认删除?")
             col1, col2 = st.columns(2)
             with col1:
-                if st.button("✅", key=f"confirm_yes_{task_id}", use_container_width=True):
+                if st.button("✅", key=f"confirm_yes_{task_id}", width="stretch"):
                     try:
                         success = run_async(pixelle_video.history.delete_task(task_id))
                         if success:
@@ -380,7 +390,7 @@ def render_grid_task_card(task: dict, pixelle_video):
                     except Exception as e:
                         st.error(f"删除失败: {str(e)}")
             with col2:
-                if st.button("❌", key=f"confirm_no_{task_id}", use_container_width=True):
+                if st.button("❌", key=f"confirm_no_{task_id}", width="stretch"):
                     st.session_state[f"confirm_delete_{task_id}"] = False
                     st.rerun()
 
@@ -410,21 +420,38 @@ def render_task_detail_modal(task_id: str, pixelle_video):
     # Left column: Input and config
     with col_input:
         st.markdown(f"**📝 {tr('history.detail.input_params')}**")
-        
+
         input_params = metadata.get("input", {})
-        
+        cfg = metadata.get("config", {})
+
         # Display input parameters
         st.markdown(f"**{tr('history.detail.mode')}:** {input_params.get('mode', 'N/A')}")
         st.markdown(f"**{tr('history.detail.n_scenes')}:** {input_params.get('n_scenes', 'N/A')}")
         st.markdown(f"**{tr('history.detail.tts_mode')}:** {input_params.get('tts_inference_mode', 'N/A')}")
         st.markdown(f"**{tr('history.detail.voice')}:** {input_params.get('tts_voice', 'N/A')}")
-        
-        # Input text
-        with st.expander(tr("history.detail.text"), expanded=True):
+        st.markdown(f"**{tr('history.detail.llm_model')}:** {cfg.get('llm_model', 'N/A')}")
+        st.markdown(f"**{tr('history.detail.image_model')}:** {input_params.get('media_workflow') or 'default'}")
+        st.markdown(f"**{tr('history.detail.template')}:** {input_params.get('frame_template', 'N/A')}")
+        st.markdown(f"**{tr('history.detail.task_duration')}:** {format_task_duration(metadata)}")
+
+        # LLM-inferred script: joined frame narrations (falls back to input text)
+        frames = storyboard.frames if storyboard and storyboard.frames else []
+        script = "\n\n".join(f"[{i+1}] {f.narration}" for i, f in enumerate(frames) if f.narration)
+        with st.expander(tr("history.detail.generated_script"), expanded=True):
+            st.text_area(
+                "Script",
+                value=script or input_params.get('text', 'N/A'),
+                height=200,
+                disabled=True,
+                label_visibility="collapsed"
+            )
+
+        # Original user input
+        with st.expander(tr("history.detail.text"), expanded=False):
             st.text_area(
                 "Input Text",
                 value=input_params.get('text', 'N/A'),
-                height=200,
+                height=120,
                 disabled=True,
                 label_visibility="collapsed"
             )
@@ -485,7 +512,7 @@ def render_task_detail_modal(task_id: str, pixelle_video):
                     data=f,
                     file_name=f"{title}.mp4",
                     mime="video/mp4",
-                    use_container_width=True
+                    width="stretch"
                 )
         else:
             st.warning("Video file not found")
@@ -498,6 +525,33 @@ def render_task_detail_modal(task_id: str, pixelle_video):
         st.rerun()
 
 
+def _render_story_projects_section():
+    """故事项目区块：展示 output/projects/ 下的项目（可继续编辑），与旧扁平 task 并存。"""
+    from pixelle_video.services.project_service import ProjectService
+    projects = ProjectService.list_projects()
+    if not projects:
+        return
+    st.markdown(f"##### 📖 故事项目 ({len(projects)})")
+    st.caption("项目级管理的故事创作，可继续编辑资产/分镜/重新生成。下方为旧版单次任务。")
+    cols = st.columns(4)
+    for i, p in enumerate(projects):
+        with cols[i % 4]:
+            with st.container(border=True):
+                import os
+                if p.cover_path and os.path.exists(p.cover_path):
+                    st.image(p.cover_path, width="stretch")
+                st.markdown(f"**{p.title}**")
+                stages = ["story", "assets", "storyboard", "video"]
+                dots = " ".join("🟢" if p.stages_ready.get(s) else "⚪" for s in stages)
+                st.caption(dots)
+                st.caption(f"📅 {p.updated_at[:16] if p.updated_at else ''}")
+                if st.button("打开项目", key=f"hist_open_{p.project_id}", width="stretch"):
+                    st.query_params["story_project"] = p.project_id
+                    st.query_params["pipeline"] = "story_illustration"
+                    st.switch_page("pages/1_🎬_Home.py")
+    st.markdown("---")
+
+
 def main():
     """Main entry point for History page"""
     # Initialize
@@ -506,9 +560,12 @@ def main():
     
     # Render header
     render_header()
-    
+
     # Initialize Pixelle-Video
     pixelle_video = get_pixelle_video()
+
+    # 故事项目区块（新项目结构 output/projects/*/，与旧扁平 task 并存）
+    _render_story_projects_section()
     
     # Sidebar: Statistics + Filters
     filter_status, sort_by, sort_order, page_size = render_sidebar_controls(pixelle_video)
@@ -573,7 +630,7 @@ def main():
         col1, col2, col3 = st.columns([1, 2, 1])
         
         with col1:
-            if st.button("⬅️ Previous", disabled=st.session_state.history_page == 1, use_container_width=True):
+            if st.button("⬅️ Previous", disabled=st.session_state.history_page == 1, width="stretch"):
                 st.session_state.history_page -= 1
                 st.rerun()
         
@@ -586,7 +643,7 @@ def main():
             )
         
         with col3:
-            if st.button("Next ➡️", disabled=st.session_state.history_page == total_pages, use_container_width=True):
+            if st.button("Next ➡️", disabled=st.session_state.history_page == total_pages, width="stretch"):
                 st.session_state.history_page += 1
                 st.rerun()
 

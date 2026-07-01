@@ -83,3 +83,7 @@ web/voice_designs/
 
 # Local scratch / generated outputs
 pixelle_video/services/code/
+
+# Bundled runtime tools (ffmpeg zip etc., too large for repo)
+tools/*.zip
+tools/ffmpeg/

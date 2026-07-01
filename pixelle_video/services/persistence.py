@@ -388,8 +388,12 @@ class PersistenceService:
             "video_segment_path": frame.video_segment_path,
             "duration": frame.duration,
             "created_at": frame.created_at.isoformat() if frame.created_at else None,
+            "reference_image_paths": frame.reference_image_paths,
+            "shot_type": frame.shot_type,
+            "camera_move": frame.camera_move,
+            "lighting": frame.lighting,
         }
-    
+
     def _dict_to_frame(self, data: Dict[str, Any]) -> StoryboardFrame:
         """Convert dict to StoryboardFrame"""
         return StoryboardFrame(
@@ -404,6 +408,10 @@ class PersistenceService:
             video_segment_path=data.get("video_segment_path"),
             duration=data.get("duration", 0.0),
             created_at=datetime.fromisoformat(data["created_at"]) if data.get("created_at") else None,
+            reference_image_paths=data.get("reference_image_paths") or [],
+            shot_type=data.get("shot_type"),
+            camera_move=data.get("camera_move"),
+            lighting=data.get("lighting"),
         )
     
     def _content_metadata_to_dict(self, metadata: ContentMetadata) -> Dict[str, Any]:

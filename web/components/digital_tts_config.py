@@ -25,36 +25,46 @@ from web.utils.async_helpers import run_async
 from pixelle_video.config import config_manager
 
 
-def render_style_config(pixelle_video):
-    """Render style configuration section (middle column)"""
+def render_style_config(pixelle_video, key_prefix="digital_"):
+    """Render style configuration section (middle column).
+
+    key_prefix 命名空间所有 widget key，避免多 tab 共用本组件时 key 冲突
+    （st.tabs 每次渲染所有 tab）。digital_human 用默认 "digital_"，story 用 "story_"。
+    """
     # TTS Section (moved from left column)
     # ====================================================================
     with st.container(border=True):
         st.markdown(f"**{tr('section.tts')}**")
-        
+
         with st.expander(tr("help.feature_description"), expanded=False):
             st.markdown(f"**{tr('help.what')}**")
             st.markdown(tr("tts.what"))
             st.markdown(f"**{tr('help.how')}**")
             st.markdown(tr("tts.how"))
-        
+
         # Get TTS config
         comfyui_config = config_manager.get_comfyui_config()
         tts_config = comfyui_config["tts"]
-        
+
         # Inference mode selection
+        _mode_options = ["local", "comfyui", "qwen_tts"]
+        _saved_mode = tts_config.get("inference_mode", "local")
+        if _saved_mode not in _mode_options:
+            _saved_mode = "local"
         tts_mode = st.radio(
             tr("tts.inference_mode"),
-            ["local", "comfyui"],
+            _mode_options,
             horizontal=True,
-            format_func=lambda x: tr(f"tts.mode.{x}"),
-            index=0 if tts_config.get("inference_mode", "local") == "local" else 1,
-            key="digital_tts_inference_mode"
+            format_func=lambda x: tr(f"tts.mode.{x}") if tr(f"tts.mode.{x}") != f"tts.mode.{x}" else x,
+            index=_mode_options.index(_saved_mode),
+            key=f"{key_prefix}tts_inference_mode"
         )
-        
+
         # Show hint based on mode
         if tts_mode == "local":
             st.caption(tr("tts.mode.local_hint"))
+        elif tts_mode == "qwen_tts":
+            st.caption("Qwen TTS 实时语音合成 — 使用语音工作台设计的自定义音色")
         else:
             st.caption(tr("tts.mode.comfyui_hint"))
         
@@ -94,7 +104,7 @@ def render_style_config(pixelle_video):
                     tr("tts.voice_selector"),
                     voice_options,
                     index=default_voice_index,
-                    key="digital_tts_local_voice"
+                    key=f"{key_prefix}tts_local_voice"
                 )
                 
                 # Get actual voice ID
@@ -110,14 +120,51 @@ def render_style_config(pixelle_video):
                     value=saved_speed,
                     step=0.1,
                     format="%.1fx",
-                    key="digital_tts_local_speed"
+                    key=f"{key_prefix}tts_local_speed"
                 )
                 st.caption(tr("tts.speed_label", speed=f"{tts_speed:.1f}"))
             
             # Variables for video generation
             tts_workflow_key = None
             ref_audio_path = None
-        
+
+        # ================================================================
+        # Qwen TTS Mode UI
+        # ================================================================
+        elif tts_mode == "qwen_tts":
+            # Load saved voice designs from Voice Designer
+            import json as _json
+            voice_designs_dir = Path(__file__).parent.parent / "voice_designs"
+
+            voice_options = []
+            voice_ids = []
+
+            if voice_designs_dir.exists():
+                for f in sorted(voice_designs_dir.glob("*.json"), reverse=True):
+                    try:
+                        with open(f, "r", encoding="utf-8") as fp:
+                            data = _json.load(fp)
+                            voice_ids.append(data["voice_id"])
+                            voice_options.append(f"{data['name']} ({data['voice_id'][:12]}...)")
+                    except Exception:
+                        pass
+
+            if not voice_options:
+                st.warning("暂无已设计的音色，请先在「Voice Designer」页面创建音色")
+                selected_voice = None
+            else:
+                _qvoice = st.selectbox(
+                    "选择设计好的音色",
+                    voice_options,
+                    key=f"{key_prefix}tts_qwen_voice",
+                )
+                selected_voice = voice_ids[voice_options.index(_qvoice)]
+                st.caption(f"Voice ID: `{selected_voice}`")
+
+            tts_speed = None
+            tts_workflow_key = None
+            ref_audio_path = None
+
         # ================================================================
         # ComfyUI Mode UI
         # ================================================================
@@ -129,7 +176,7 @@ def render_style_config(pixelle_video):
                 tr("tts.ref_audio"),
                 type=["mp3", "wav", "flac", "m4a", "aac", "ogg"],
                 help=tr("tts.ref_audio_help"),
-                key="digital_ref_audio_upload"
+                key=f"{key_prefix}ref_audio_upload"
             )
             
             # Save uploaded ref_audio to temp file if provided
@@ -158,11 +205,11 @@ def render_style_config(pixelle_video):
                 tr("tts.preview_text"),
                 value="大家好，这是一段测试语音。",
                 placeholder=tr("tts.preview_text_placeholder"),
-                key="digital_tts_preview_text"
+                key=f"{key_prefix}tts_preview_text"
             )
-            
+
             # Preview button
-            if st.button(tr("tts.preview_button"), key="gidital_preview_tts", use_container_width=True):
+            if st.button(tr("tts.preview_button"), key=f"{key_prefix}preview_tts", width="stretch"):
                 with st.spinner(tr("tts.previewing")):
                     try:
                         # Build TTS params based on mode
@@ -202,7 +249,7 @@ def render_style_config(pixelle_video):
     # Return all style configuration parameters (Simplified version only local TTS)
     return {
         "tts_inference_mode": tts_mode,
-        "tts_voice": selected_voice if tts_mode == "local" else None,
+        "tts_voice": selected_voice if tts_mode in ("local", "qwen_tts") else None,
         "tts_speed": tts_speed if tts_mode == "local" else None,
         "tts_workflow": tts_workflow_key if tts_mode == "comfyui" else None,
         "ref_audio": str(ref_audio_path) if ref_audio_path else None,

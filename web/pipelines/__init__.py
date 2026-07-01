@@ -19,7 +19,6 @@ Exports registry functions and automatically registers available pipelines.
 from web.pipelines.base import (
     PipelineUI,
     register_pipeline_ui,
-    get_pipeline_ui,
     get_all_pipeline_uis
 )
 
@@ -29,10 +28,10 @@ from web.pipelines import asset_based
 from web.pipelines import digital_human
 from web.pipelines import i2v
 from web.pipelines import action_transfer
+from web.pipelines import story_illustration
 
 __all__ = [
     "PipelineUI",
     "register_pipeline_ui",
-    "get_pipeline_ui",
     "get_all_pipeline_uis"
 ]

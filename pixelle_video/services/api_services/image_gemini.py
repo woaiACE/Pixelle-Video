@@ -37,6 +37,9 @@ class ImageGemini:
     @staticmethod
     def _encode_image(image_path: str):
         """本地图片 → Gemini inlineData part，失败返回 None。"""
+        # ponytail: 仅认本地文件，远程 URL（http）静默返回 None 被丢弃。
+        # 当前 story-illustration 资产图均经 api_media 落盘为本地路径，不触发；
+        # 若未来 provider 直接返回远程 URL 未落盘，参考图会无声丢失——届时在此加 httpx 下载。
         if not image_path or not os.path.exists(image_path):
             return None
         try:
@@ -117,33 +120,3 @@ class ImageGemini:
                 if attempt < self.max_attempts - 1:
                     time.sleep(min(4 * (2 ** attempt), 30))  # ponytail: exp backoff, max 30s
         raise Exception(f"Gemini image generation failed after {self.max_attempts} attempts. Last error: {last_error}")
-
-
-if __name__ == "__main__":
-    import sys
-    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    from config import Config
-
-    save_dir = "code/result/image/test_avail"
-    api_key = Config.GEMINI_API_KEY
-    base_url = Config.GOOGLE_GEMINI_BASE_URL
-    if not api_key:
-        print("✗ GEMINI_API_KEY 未设置，跳过")
-        sys.exit(1)
-    print("=== Gemini 图片生成测试 ===")
-    print(f"  API Key: {api_key[:6]}***")
-    print(f"  Base URL: {base_url}")
-
-    client = ImageGemini(api_key=api_key, base_url=base_url, local_proxy=Config.LOCAL_PROXY)
-    client.max_attempts = 1
-    for model in ["gemini-3-pro-image", "gemini-3.1-flash-image"]:
-        print(f"\nTesting model: {model}")
-        t0 = time.time()
-        os.makedirs(save_dir, exist_ok=True)
-        try:
-            path = client.generate_image(
-                prompt="A cute orange cat lying on a sunny windowsill, watercolor style",
-                model=model, save_dir=save_dir, aspect_ratio="9:16")
-            print(f"✓ 生成成功 ({time.time() - t0:.1f}s): {path}")
-        except Exception as e:
-            print(f"✗ 失败 ({time.time() - t0:.1f}s): {e}")

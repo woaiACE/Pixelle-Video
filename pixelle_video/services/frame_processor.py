@@ -236,16 +236,28 @@ class FrameProcessor:
                 return
 
         logger.info(f"  🎨 [Frame {frame.index+1}] Media generation starting...")
-        
+
         # Determine media type based on workflow/template.
-        # video_ prefix in workflow name indicates ComfyUI video generation;
-        # video_* templates can also use direct API video workflows.
         workflow_name = config.media_workflow or ""
         from pixelle_video.utils.template_util import get_template_type
         template_type = get_template_type(config.frame_template or "")
         is_video_workflow = "video_" in workflow_name.lower() or template_type == "video"
+
+        # 分镜阶段已预生图 → 跳过生图，复制到 task 目录复用（仅 image 类型）
+        if frame.image_path and os.path.exists(frame.image_path) and not is_video_workflow:
+            frame.media_type = "image"
+            # 复制到 task frames 目录，避免 tempdir 路径在 resume 时丢失
+            local_path = get_task_frame_path(config.task_id, frame.index, "image")
+            if os.path.abspath(frame.image_path) != os.path.abspath(local_path):
+                import shutil
+                os.makedirs(os.path.dirname(local_path), exist_ok=True)
+                shutil.copy2(frame.image_path, local_path)
+                frame.image_path = local_path
+            logger.info(f"  ⏭️ [Frame {frame.index+1}] Reusing pre-generated panel image: {frame.image_path}")
+            return
+
         media_type = "video" if is_video_workflow else "image"
-        
+
         logger.debug(f"  → Media type: {media_type} (workflow: {workflow_name})")
         
         # Build media generation parameters
@@ -264,6 +276,10 @@ class FrameProcessor:
             "image_path": frame.image_path,
             "index": frame.index + 1,  # 1-based index for workflow
         }
+        # img2img: asset-library reference images for cross-scene consistency.
+        # Transparent passthrough — empty list = standard text-to-image behavior.
+        if frame.reference_image_paths:
+            media_params["image_paths"] = frame.reference_image_paths
         media_params.update(api_video_params)
         
         # For video workflows: pass audio duration as target video duration

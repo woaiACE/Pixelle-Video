@@ -31,13 +31,9 @@ from web.pipelines.api_workflows import (
     workflow_select_help,
     workflow_source_help,
     workflow_source_label,
+    is_api_workflow,
 )
 from pixelle_video.config import config_manager
-
-
-def is_api_workflow(workflow_key: str | None) -> bool:
-    """Return True for direct provider workflow keys such as api/dashscope/xxx."""
-    return bool(workflow_key and workflow_key.startswith("api/"))
 
 
 def render_style_config(pixelle_video):
@@ -252,7 +248,7 @@ def render_style_config(pixelle_video):
             )
             
             # Preview button
-            if st.button(tr("tts.preview_button"), key="preview_tts", use_container_width=True):
+            if st.button(tr("tts.preview_button"), key="preview_tts", width="stretch"):
                 with st.spinner(tr("tts.previewing")):
                     try:
                         # Build TTS params based on mode
@@ -489,7 +485,7 @@ def render_style_config(pixelle_video):
                                 
                                 # Display preview image or placeholder
                                 if preview_path and os.path.exists(preview_path):
-                                    st.image(preview_path, use_container_width=True)
+                                    st.image(preview_path, width="stretch")
                                 else:
                                     # Placeholder for templates without preview (fixed height, compact layout)
                                     st.markdown(
@@ -529,7 +525,7 @@ def render_style_config(pixelle_video):
                                 if st.button(
                                     button_label,
                                     key=f"template_{template.template_path}",
-                                    use_container_width=True,
+                                    width="stretch",
                                     type=button_type,
                                 ):
                                     st.session_state['selected_template'] = template.template_path
@@ -657,7 +653,7 @@ def render_style_config(pixelle_video):
             st.info(f"📐 {tr('template.size_info')}: {template_width} × {template_height}")
             
             # Preview button
-            if st.button(tr("template.preview_button"), key="btn_preview_template", use_container_width=True):
+            if st.button(tr("template.preview_button"), key="btn_preview_template", width="stretch"):
                 with st.spinner(tr("template.preview_generating")):
                     try:
                         from pixelle_video.services.frame_html import HTMLFrameGenerator
@@ -736,7 +732,9 @@ def render_style_config(pixelle_video):
                     st.markdown(tr("style.workflow_how"))
 
             source_options = ["runninghub", "selfhost", "api"]
-            default_source_index = 0
+            # ponytail: default to API image generation for quick-create.
+            # saved_workflow (config default_workflow) overrides; else prefer api.
+            default_source_index = 2  # api
             for index, source in enumerate(source_options):
                 if saved_workflow.startswith(f"{source}/"):
                     default_source_index = index
@@ -781,10 +779,22 @@ def render_style_config(pixelle_video):
         
             # Default to first option (should be runninghub by sorting)
             default_workflow_index = 0
-        
+
             # If user has a saved preference in config, try to match it
             if saved_workflow and saved_workflow in workflow_keys:
                 default_workflow_index = workflow_keys.index(saved_workflow)
+            elif workflow_source == "api" and template_media_type == "image":
+                # ponytail: prefer gemini-3.1-flash-image for API image gen
+                _preferred = "gemini-3.1-flash-image"
+                _pref_idx = next(
+                    (i for i, k in enumerate(workflow_keys) if k and _preferred in k), None
+                )
+                if _pref_idx is None:
+                    _pref_idx = next(
+                        (i for i, k in enumerate(workflow_keys) if k and "gemini" in k), None
+                    )
+                if _pref_idx is not None:
+                    default_workflow_index = _pref_idx
         
             _wf_opts = workflow_options if workflow_options else ["No workflows found"]
             workflow_display = persistent_widget(
@@ -873,7 +883,7 @@ def render_style_config(pixelle_video):
                             if st.button(
                                 name,
                                 key=f"style_preset_{style_key}",
-                                use_container_width=True,
+                                width="stretch",
                                 type="primary" if is_selected else "secondary",
                             ):
                                 st.session_state[prefix_key] = preset["prefix"]
@@ -907,7 +917,7 @@ def render_style_config(pixelle_video):
             
                 # Preview button
                 preview_button_label = tr("style.video_preview") if template_media_type == "video" else tr("style.preview")
-                if st.button(preview_button_label, key="preview_style", use_container_width=True):
+                if st.button(preview_button_label, key="preview_style", width="stretch"):
                     if not workflow_key:
                         st.error(
                             "请先选择可用的工作流或模型。"

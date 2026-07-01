@@ -328,6 +328,20 @@ class StandardPipeline(LinearVideoPipeline):
             final_voice_id = voice_id or tts_voice or "zh-CN-YunjianNeural"
             logger.debug(f"TTS Mode: legacy (voice_id={final_voice_id}, workflow={final_tts_workflow})")
             
+        # Resolve media size: prefer caller-provided values, else probe the
+        # template (meta tags → path → fallback). media_width/height are
+        # required fields on StoryboardConfig; a None here would propagate to
+        # frame_processor and break media generation.
+        media_width = ctx.params.get("media_width")
+        media_height = ctx.params.get("media_height")
+        if not media_width or not media_height:
+            from pixelle_video.services.frame_html import HTMLFrameGenerator
+            from pixelle_video.utils.template_util import resolve_template_path
+            _tpl_path = resolve_template_path(
+                ctx.params.get("frame_template") or "1080x1920/default.html"
+            )
+            media_width, media_height = HTMLFrameGenerator(_tpl_path).get_media_size()
+
         # Create config
         ctx.config = StoryboardConfig(
             task_id=ctx.task_id,
@@ -342,8 +356,8 @@ class StandardPipeline(LinearVideoPipeline):
             tts_workflow=final_tts_workflow,
             tts_speed=ctx.params.get("tts_speed", 1.2),
             ref_audio=ctx.params.get("ref_audio"),
-            media_width=ctx.params.get("media_width"),
-            media_height=ctx.params.get("media_height"),
+            media_width=media_width,
+            media_height=media_height,
             media_workflow=ctx.params.get("media_workflow"),
             api_video_params=ctx.params.get("api_video_params"),
             frame_template=ctx.params.get("frame_template") or "1080x1920/default.html",
